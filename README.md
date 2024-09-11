@@ -1,1 +1,2 @@
-x
+Domain Update Pipeline
+This pipeline automates the process of updating domains in LaunchDarkly (LD) based on data fetched from AWS S3. The pipeline includes functions for fetching data, processing it, and sending updates to LD.
