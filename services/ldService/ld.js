@@ -29,14 +29,12 @@ export const fetchDataFromApi = async (API,apiKey,sendSlackMessage) => {
             const errorText = await resp.text();
             // Send error message to Slack and log the error
               await sendSlackMessage(`GET request failed with status ${resp.status}: ${errorText}`);
-            console.error(`Request failed with status ${resp.status}: ${errorText}`);
             return null;
         }
 
         const data = await resp.json();
         return data;
     } catch (error) {
-        console.error(`Error fetching data: ${error.message}`);
         // Send error message to Slack and log the error
         await sendSlackMessage(`Error fetching data from API: ${error.message}`);
         return null;
@@ -75,7 +73,6 @@ export const sendDataToApi = async (API,apiKey,patchOperation,sendSlackMessage) 
     if (!resp.ok) {
         const errorText = await resp.text();
         await sendSlackMessage(`PATCH request failed with status ${resp.status}: ${errorText}`);
-        console.error(`Request failed with status ${resp.status}: ${errorText}`);
     }
     const data = await resp.json();
     return data;

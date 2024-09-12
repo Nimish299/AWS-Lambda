@@ -12,7 +12,6 @@ export const handler = async () => {
         await processLdRequestWorkflow();
         return { statusCode: 200, body: JSON.stringify('Success') };
     } catch (error) {
-        console.error('Lambda execution failed:', error);
         return {
             statusCode: 500,
             body: JSON.stringify({ message: 'Internal Server Error' }),

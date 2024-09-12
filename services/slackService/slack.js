@@ -11,13 +11,14 @@ import fetch from 'node-fetch';
  * @returns {Promise<void>} - A promise that resolves when the request completes.
  * @throws {Error} - Throws an error if the fetch request fails.
  */
+const SLACK_WEBHOOK='https://hooks.slack.com/services/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';
 export async function sendSlackMessage(message) {
-    const payload = { text: message, };
-    const response = await fetch('https://hooks.slack.com/services/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', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-  }
+  const payload = message.blocks ? message : { text: message };
+  const response = await fetch(`${SLACK_WEBHOOK}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+}

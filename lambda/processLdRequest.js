@@ -8,6 +8,7 @@ import { Readable } from 'stream';
 import zlib from 'zlib';
 let last_update_Date
 
+
 const BUCKET_NAME = process.env.BUCKET_NAME;
 const Limit = process.env.LIMIT;
 const projectKey = process.env.PROJECT_KEY;
@@ -31,14 +32,12 @@ function setDescription(segmentData) {
         if (!isNaN(parsedDate)) {
             formattedDate = parsedDate;
         } else {
-            console.error('Invalid date format');
+           sendSlackMessage(`Invalid date format;${longDateFormat}`);
+
         }
     } else {
         formattedDate = new Date('2024-09-03');
-
     }
-    // formattedDate = new Date('2024-09-10');
-
     return formattedDate;
 }
 function fetchDates() {
@@ -59,7 +58,7 @@ function fetchDates() {
 
         return Results;
     } catch (error) {
-        console.error('Error fetching dates:', error);
+        sendSlackMessage(`Error fetching dates: ${error}`);
         throw error;
     }
 }
@@ -74,14 +73,14 @@ function fetchDates() {
  */
 async function streamToString(stream) {
     const chunks = [];
-    
+
     return new Promise((resolve, reject) => {
         // Collect data chunks from the stream
         stream.on('data', chunk => chunks.push(chunk));
-        
+
         // Resolve the promise with the concatenated string when the stream ends
         stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-        
+
         // Reject the promise if an error occurs
         stream.on('error', reject);
     });
@@ -99,7 +98,9 @@ const processLdRequestWorkflow = async () => {
     //Fetch Segment Data  using LD API 
     const API = `${baseUrl}/segments/${projectKey}/${environmentKey}/${segmentKey}`;
 
-    const segmentData = await fetchDataFromApi(API,apiKey,sendSlackMessage);
+    //Fetching Data from LD
+    const segmentData = await fetchDataFromApi(API, apiKey, sendSlackMessage);
+
     // Extract the last updated date from the description (i.e., rule name)
     last_update_Date = setDescription(segmentData)
     let Domains = [];
@@ -134,19 +135,26 @@ const processLdRequestWorkflow = async () => {
             * If the lambda function runs twice a day, this ensures it continues from the correct time.
             */
             let Last_updated_Time;
-            if (dayDate === lastDate && dayDate !== todayDate) {
+            if (dayDate === lastDate ) {
                 // Extract hours, minutes, and seconds from the last updated date
                 const hours = String(last_update_Date.getUTCHours()).padStart(2, '0');
                 const minutes = String(last_update_Date.getUTCMinutes()).padStart(2, '0');
                 const seconds = String(last_update_Date.getUTCSeconds()).padStart(2, '0');
                 Last_updated_Time = `${hours}${minutes}${seconds}0000`;
+
             }
             else {
                 Last_updated_Time = 0;
             }
-            //List of  Objects on S3 on given folder Path
-            const response = await ListObjects(folderPath);
-
+            let response;
+            try {
+                //List of  Objects on S3 on given folder Path
+                response = await ListObjects(folderPath);
+            }
+            catch (error) {
+                await sendSlackMessage(`Error processing List at ${folderPath}: ${error}`);
+                throw error;
+            }
             /**
              * 
              * Filter all the manifest file  which are not updated yet
@@ -190,7 +198,8 @@ const processLdRequestWorkflow = async () => {
                     // Return the extracted URLs
                     return File_urls;
                 } catch (error) {
-                    console.error(`Error processing manifest at ${manifestPath}:`, error);
+                    await sendSlackMessage(`Error processing manifest at ${manifestPath}: ${error}`);
+
                     throw error;
                 }
             })
@@ -227,7 +236,8 @@ const processLdRequestWorkflow = async () => {
                         }
                         catch (error) {
                             if (error.name === 'NoSuchKey') {
-                                console.warn(` ${filePath}, skipping...`);
+                                await sendSlackMessage(`${filePath}, skipping... ${error}`);
+
                                 return [];
                             }
                         }
@@ -235,16 +245,16 @@ const processLdRequestWorkflow = async () => {
             Domains = Domains.flat();
         }
         catch (error) {
+            await sendSlackMessage(`Error processing file: ${error}`);
 
-            console.error('Error processing file:', error);
+            // Return an empty array in case of error
             return []; // Return an empty array in case of error
 
         }
 
         //No Need to update if there are no domain
         if (Domains.length === 0) {
-            console.log('Domains is empty, returning...');
-            console.log(last_update_Date)
+            await sendSlackMessage(`Domains is empty, So not updating on ${last_update_Date}`);
             return;
         }
 
@@ -279,11 +289,12 @@ const processLdRequestWorkflow = async () => {
                     timeZone: 'UTC'
                 });
             } else {
-                console.log('Invalid numeric part format in', lastFilePath);
+                await sendSlackMessage(`'Invalid numeric part format in': ${lastFilePath}`);
             }
         }
     } catch (error) {
-        console.error('Error processing data:', error);
+        await sendSlackMessage(`Error processing data:: ${error}`);
+        
     }
     try {
         let patchOperation = [];
@@ -344,12 +355,41 @@ const processLdRequestWorkflow = async () => {
         // API URL for patching domains in LaunchDarkly (LD)
 
         // Send the patch operation to the API and log the response
-        const response = await sendDataToApi(API, apiKey, patchOperation, sendSlackMessage);
-        console.log(response)
+        await sendDataToApi(API, apiKey, patchOperation, sendSlackMessage);
+        const numberOfDomains = Domains.length; 
+
+        const successMessage = {
+            "text": "Domain Update Notification",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "*Successfully updated the domains in LaunchDarkly:*"
+                    }
+                },
+                {
+                    "type": "section",
+                    "block_id": "section123",
+                    "fields": [
+                        {
+                            "type": "mrkdwn",
+                            "text": `*Total number of domains added:* ${numberOfDomains}`
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": `*Last updated:* ${last_update_Date}`
+                        }
+                    ]
+                }
+            ]
+        };
+        await sendSlackMessage(successMessage);
 
     }
     catch (error) {
-        console.error('Error Patching dates:', error);
+
+        await sendSlackMessage(`Error Patching dates: ${error}`);
 
     }
 };
