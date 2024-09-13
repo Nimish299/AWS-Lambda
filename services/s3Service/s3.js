@@ -23,7 +23,7 @@ export async function ListObjects(folderPath) {
         const response = await s3.send(command1);
         return response
     }
-    catch {
+    catch (error){
         console.error('Error fetching manifest file:', error);
         throw error;
     }
@@ -49,7 +49,7 @@ export async function GetObject(key) {
 
 
     }
-    catch {
+    catch(error) {
         if (error.name === 'NoSuchKey') {
             return [];
         } else {
