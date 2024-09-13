@@ -20,48 +20,58 @@ const baseUrl = process.env.LD_BASE_URL;
 function setDescription(segmentData) {
     let formattedDate;
 
-    if (segmentData.rules[0]?.description) {
-        let longDateFormat = segmentData.rules[0]?.description;
+    // Check the first rule's description to see if the date format is correct.
+    // If it's invalid, check the descriptions in all other rules.
+    // If no valid date format is found in any rule, default to a fallback date.
+    // default to a fallback date
 
-        // Remove 'at' from the description and append 'UTC' for time zone
-        // Correct the date format From rule name 
-        longDateFormat = longDateFormat.replace(' at', '') + ' UTC';
+    if (segmentData?.rules?.length) {
+        for (let i = 0; i < segmentData.rules.length; i++) {
+            let description = segmentData.rules[i]?.description;
 
-        const parsedDate = new Date(longDateFormat);
+            if (description) {
+                // Remove 'at' and append 'UTC' for proper date formatting
+                let longDateFormat = description.replace(' at', '') + ' UTC';
+                const parsedDate = new Date(longDateFormat);
 
-        if (!isNaN(parsedDate)) {
-            formattedDate = parsedDate;
-        } else {
-           sendSlackMessage(`Invalid date format;${longDateFormat}`);
-
+                if (!isNaN(parsedDate)) {
+                    // Valid date found, break the loop
+                    formattedDate = parsedDate;
+                    break;
+                }
+            }
         }
-    } else {
-        formattedDate = new Date('2024-09-03');
     }
+
+    // If no valid date was found, set a fallback date
+    if (!formattedDate) {
+        formattedDate = new Date('2024-09-03');
+        sendSlackMessage(`<@nimish.agrawal> Fallback to default date as no valid date found in rules. Using fallback date: ${formattedDate}`);
+    }
+
     return formattedDate;
 }
+
 function fetchDates() {
-    try {
-        const currentDate = new Date();
-        const Results = [];
-        const tempDate = new Date(last_update_Date);
+    const currentDate = new Date();
+    const Results = [];
+    // last_update_Date is set by setDescription, which ensures a valid date or fallback
+    // so no need to check tempDate
+    const tempDate = new Date(last_update_Date);
 
-        // Normalize the time part of the currentDate to start of the day
-        const endOfCurrentDate = new Date(currentDate);
-        endOfCurrentDate.setUTCHours(0, 0, 0, 0);
-        endOfCurrentDate.setUTCDate(endOfCurrentDate.getUTCDate() + 1);
+    // Normalize the time part of the currentDate to start of the day
+    const endOfCurrentDate = new Date(currentDate);
+    endOfCurrentDate.setUTCHours(0, 0, 0, 0);
+    endOfCurrentDate.setUTCDate(endOfCurrentDate.getUTCDate() + 1);
 
-        while (tempDate < endOfCurrentDate) {
-            Results.push(new Date(tempDate));
-            tempDate.setUTCDate(tempDate.getUTCDate() + 1);
-        }
-
-        return Results;
-    } catch (error) {
-        sendSlackMessage(`Error fetching dates: ${error}`);
-        throw error;
+    while (tempDate < endOfCurrentDate) {
+        Results.push(new Date(tempDate));
+        tempDate.setUTCDate(tempDate.getUTCDate() + 1);
     }
+
+    return Results;
 }
+
 
 /**
  * Convert a stream to a string.
@@ -102,6 +112,7 @@ const processLdRequestWorkflow = async () => {
     const segmentData = await fetchDataFromApi(API, apiKey, sendSlackMessage);
 
     // Extract the last updated date from the description (i.e., rule name)
+    // last_update_Date is set by setDescription, which ensures a valid date or fallback
     last_update_Date = setDescription(segmentData)
     let Domains = [];
     try {
@@ -117,25 +128,14 @@ const processLdRequestWorkflow = async () => {
             const dayDate = new Date(day).toISOString().split('T')[0];
             //last Updated Date
             const lastDate = new Date(last_update_Date).toISOString().split('T')[0];
-            //Current Date
-            const todayDate = new Date().toISOString().split('T')[0];
-
-            // Folder structure in S3 is  pqa_trials/strftime('%Y/%m/%d/%H%M%S0000')
-            const year = day.getUTCFullYear();
-            // Month is zero-based, so add 1
-            const month = String(day.getUTCMonth() + 1).padStart(2, '0');
-            const date = String(day.getUTCDate()).padStart(2, '0');
-
-            // Construct the folder path based on the date components
-            const folderPath = `pqa_trials/${year}/${month}/${date}/`;
 
             /** 
-            * Pointing the cursor to the last updated time.
-            * Adding a condition to start from the next time after the last update.
-            * If the lambda function runs twice a day, this ensures it continues from the correct time.
-            */
+           * Pointing the cursor to the last updated time.
+           * Adding a condition to start from the next time after the last update.
+           * If the lambda function runs twice a day, this ensures it continues from the correct time.
+           */
             let Last_updated_Time;
-            if (dayDate === lastDate ) {
+            if (dayDate === lastDate) {
                 // Extract hours, minutes, and seconds from the last updated date
                 const hours = String(last_update_Date.getUTCHours()).padStart(2, '0');
                 const minutes = String(last_update_Date.getUTCMinutes()).padStart(2, '0');
@@ -146,13 +146,23 @@ const processLdRequestWorkflow = async () => {
             else {
                 Last_updated_Time = 0;
             }
+
+            // Folder structure in S3 is  pqa_trials/strftime('%Y/%m/%d/%H%M%S0000')
+            const year = day.getUTCFullYear();
+            // Month is zero-based, so add 1
+            const month = String(day.getUTCMonth() + 1).padStart(2, '0');
+            const date = String(day.getUTCDate()).padStart(2, '0');
+
+            // Construct the folder path based on the date components
+            const folderPath = `pqa_trials/${year}/${month}/${date}/`;
+
             let response;
             try {
                 //List of  Objects on S3 on given folder Path
                 response = await ListObjects(folderPath);
             }
             catch (error) {
-                await sendSlackMessage(`Error processing List at ${folderPath}: ${error}`);
+                await sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
                 throw error;
             }
             /**
@@ -198,7 +208,7 @@ const processLdRequestWorkflow = async () => {
                     // Return the extracted URLs
                     return File_urls;
                 } catch (error) {
-                    await sendSlackMessage(`Error processing manifest at ${manifestPath}: ${error}`);
+                    await sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
 
                     throw error;
                 }
@@ -236,7 +246,7 @@ const processLdRequestWorkflow = async () => {
                         }
                         catch (error) {
                             if (error.name === 'NoSuchKey') {
-                                await sendSlackMessage(`${filePath}, skipping... ${error}`);
+                                await sendSlackMessage(`<@nimish.agrawal>${filePath}, skipping... `);
 
                                 return [];
                             }
@@ -245,77 +255,115 @@ const processLdRequestWorkflow = async () => {
             Domains = Domains.flat();
         }
         catch (error) {
-            await sendSlackMessage(`Error processing file: ${error}`);
+            await sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
 
             // Return an empty array in case of error
             return []; // Return an empty array in case of error
 
         }
 
+
         //No Need to update if there are no domain
         if (Domains.length === 0) {
+            last_update_Date = last_update_Date.toLocaleString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true,
+                timeZone: 'UTC'
+            });
             await sendSlackMessage(`Domains is empty, So not updating on ${last_update_Date}`);
             return;
         }
+        else {
 
-        //update the last_update_Date 
-        let lastFilePath = _.last(All_File_urls);
-        if (lastFilePath) {
-            //Take the Time part from URL
-            const parts = lastFilePath.split('/');
-            const numericPart = parts[7];
 
-            if (numericPart && numericPart.length === 10) {
-                const year = parts[4];
-                const month = parts[5];
-                const day = parts[6]
-                const hour = numericPart.substring(0, 2);
-                const minute = numericPart.substring(2, 4);
-                const second = numericPart.substring(4, 6);
-                const dateTimeString = `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
+            //update the last_update_Date 
+            let lastFilePath = _.last(All_File_urls);
+            if (lastFilePath) {
+                //Take the Time part from URL
+                const parts = lastFilePath.split('/');
+                const numericPart = parts[7];
 
-                //updating last  update Date
-                last_update_Date = new Date(dateTimeString);
+                if (numericPart && numericPart.length === 10) {
+                    const year = parts[4];
+                    const month = parts[5];
+                    const day = parts[6]
+                    const hour = numericPart.substring(0, 2);
+                    const minute = numericPart.substring(2, 4);
+                    const second = numericPart.substring(4, 6);
+                    const dateTimeString = `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
 
-                //Making more visible
-                last_update_Date = last_update_Date.toLocaleString('en-US', {
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: true,
-                    timeZone: 'UTC'
-                });
-            } else {
-                await sendSlackMessage(`'Invalid numeric part format in': ${lastFilePath}`);
+                    //updating last  update Date
+                    last_update_Date = new Date(dateTimeString);
+
+                    //Making more visible
+                    last_update_Date = last_update_Date.toLocaleString('en-US', {
+                        month: 'long',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true,
+                        timeZone: 'UTC'
+                    });
+                } else {
+                    await sendSlackMessage(`<@nimish.agrawal>'Invalid numeric part format in': ${lastFilePath}`);
+                }
             }
         }
     } catch (error) {
-        await sendSlackMessage(`Error processing data:: ${error}`);
-        
+        await sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
+        throw error
+
     }
+
     try {
-        let patchOperation = [];
-        let updatedEmailDomains = [...Domains];
-        let operationType = 'add';
-        //Check if there is some rule exist or not 
-        if (segmentData.rules && segmentData.rules.length > 0) {
-            const existingEmailDomains = segmentData.rules[0]?.clauses[0]?.values || [];
-            //Merge old data with new data as we will replace First rule till limit 
-            updatedEmailDomains = [...existingEmailDomains, ...updatedEmailDomains];
-            operationType = 'replace';
-        }
-        // Check if the number of updated email domains exceeds the limit
-        if (updatedEmailDomains.length > Limit) {
-            //Divide the email domains into chunks of size `Limit`
-            for (let count = 0; count < updatedEmailDomains.length; count += Limit) {
-                let emailDomainsChunk = updatedEmailDomains.slice(count, count + Limit);
-                //Json to be send on patchOperation
+        //Just to make sure it run if we get any new domain 
+        if (Domains.length > 0) {
+            let patchOperation = [];
+            let updatedEmailDomains = [...Domains];
+            let operationType = 'add';
+            //Check if there is some rule exist or not 
+            if (segmentData.rules && segmentData.rules.length > 0) {
+                const existingEmailDomains = segmentData.rules[0]?.clauses[0]?.values || [];
+                //Merge old data with new data as we will replace First rule till limit 
+                updatedEmailDomains = [...existingEmailDomains, ...updatedEmailDomains];
+                operationType = 'replace';
+            }
+            // Check if the number of updated email domains exceeds the limit
+            if (updatedEmailDomains.length > Limit) {
+                //Divide the email domains into chunks of size `Limit`
+                for (let count = 0; count < updatedEmailDomains.length; count += Limit) {
+                    let emailDomainsChunk = updatedEmailDomains.slice(count, count + Limit);
+                    //Json to be send on patchOperation
+                    patchOperation.push({
+                        // Use 'replace' for the first chunk, 'add' for subsequent chunks
+                        op: count === 0 ? operationType : 'add',
+                        path: '/rules/0',
+                        value: {
+                            clauses: [
+                                {
+                                    contextKind: 'user',
+                                    attribute: 'emailDomain',
+                                    op: 'in',
+                                    values: emailDomainsChunk,
+                                    negate: false,
+                                },
+                            ],
+                            description: last_update_Date
+
+
+                        },
+                    });
+                }
+            } else {
                 patchOperation.push({
-                    // Use 'replace' for the first chunk, 'add' for subsequent chunks
-                    op: count === 0 ? operationType : 'add',
+                    op: operationType,
                     path: '/rules/0',
                     value: {
                         clauses: [
@@ -323,74 +371,54 @@ const processLdRequestWorkflow = async () => {
                                 contextKind: 'user',
                                 attribute: 'emailDomain',
                                 op: 'in',
-                                values: emailDomainsChunk,
+                                values: updatedEmailDomains,
                                 negate: false,
                             },
                         ],
                         description: last_update_Date
 
-
                     },
                 });
             }
-        } else {
-            patchOperation.push({
-                op: operationType,
-                path: '/rules/0',
-                value: {
-                    clauses: [
-                        {
-                            contextKind: 'user',
-                            attribute: 'emailDomain',
-                            op: 'in',
-                            values: updatedEmailDomains,
-                            negate: false,
-                        },
-                    ],
-                    description: last_update_Date
+            // API URL for patching domains in LaunchDarkly (LD)
 
-                },
-            });
-        }
-        // API URL for patching domains in LaunchDarkly (LD)
+            // Send the patch operation to the API and log the response
+            await sendDataToApi(API, apiKey, patchOperation, sendSlackMessage);
+            const numberOfDomains = Domains.length;
 
-        // Send the patch operation to the API and log the response
-        await sendDataToApi(API, apiKey, patchOperation, sendSlackMessage);
-        const numberOfDomains = Domains.length; 
-
-        const successMessage = {
-            "text": "Domain Update Notification",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "*Successfully updated the domains in LaunchDarkly:*"
-                    }
-                },
-                {
-                    "type": "section",
-                    "block_id": "section123",
-                    "fields": [
-                        {
+            const successMessage = {
+                "text": "Domain Update Notification",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
                             "type": "mrkdwn",
-                            "text": `*Total number of domains added:* ${numberOfDomains}`
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": `*Last updated:* ${last_update_Date}`
+                            "text": "*Successfully updated the domains in LaunchDarkly:*"
                         }
-                    ]
-                }
-            ]
-        };
-        await sendSlackMessage(successMessage);
-
+                    },
+                    {
+                        "type": "section",
+                        "block_id": "section123",
+                        "fields": [
+                            {
+                                "type": "mrkdwn",
+                                "text": `*Total number of domains added:* ${numberOfDomains}`
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": `*Last updated:* ${last_update_Date}`
+                            }
+                        ]
+                    }
+                ]
+            };
+            await sendSlackMessage(successMessage);
+        }
     }
     catch (error) {
 
-        await sendSlackMessage(`Error Patching dates: ${error}`);
-
+        await sendSlackMessage(`<@nimish.agrawal>Error Patching dates: ${error}`);
+        throw error;
     }
 };
 
