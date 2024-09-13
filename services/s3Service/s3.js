@@ -3,9 +3,8 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const { S3Client, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3'),
-  s3 = new S3Client({ region: 'us-east-1' }),
-  BUCKET_NAME = 'pqatrialsdomain';
-
+  s3 = new S3Client({ region: process.env.AWS_REGION });
+  BUCKET_NAME = process.env.BUCKET_NAME;
 
 /**
  * Lists all objects in the specified S3 folder path.
