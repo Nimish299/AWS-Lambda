@@ -17,6 +17,5 @@
     "lodash": "^4.17.21",
     "node-fetch": "^3.3.2",
     "zlib": "^1.0.5"
-  },
-  "type": "module"
+  }
 }

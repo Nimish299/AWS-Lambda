@@ -1,11 +1,13 @@
-import { fetchDataFromApi, sendDataToApi } from '../services/ldService/ld.js';
-import { ListObjects, GetObject } from '../services/s3Service/s3.js';
-import { sendSlackMessage } from '../services/slackService/slack.js';
+const { fetchDataFromApi, sendDataToApi } = require('../services/ldService/ld.js');
+const { ListObjects, GetObject } = require('../services/s3Service/s3.js');
+const { sendSlackMessage } = require('../services/slackService/slack.js');
 
-import _ from "lodash";
-import csv from 'csv-parser';
-import { Readable } from 'stream';
-import zlib from 'zlib';
+const _ = require('lodash');
+const csv = require('csv-parser');
+const { Readable } = require('stream');
+const zlib = require('zlib');
+
+
 let last_update_Date
 
 
@@ -422,4 +424,5 @@ const processLdRequestWorkflow = async () => {
     }
 };
 
-export default processLdRequestWorkflow;
+// export default processLdRequestWorkflow;
+module.exports = { processLdRequestWorkflow }

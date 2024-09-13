@@ -1,6 +1,4 @@
 
-import fetch from 'node-fetch';
-
 /**
  * Fetches data from a specified API endpoint.
  * 
@@ -12,7 +10,7 @@ import fetch from 'node-fetch';
  * @param {Function} sendSlackMessage - Function to send error messages to Slack.
  * @returns {Promise<Object|null>} - The JSON data from the API if successful, or null if there was an error.
  */
-export const fetchDataFromApi = async (API,apiKey,sendSlackMessage) => {
+const fetchDataFromApi = async (API,apiKey,sendSlackMessage) => {
 
     try {
         let resp = await fetch(
@@ -53,7 +51,7 @@ export const fetchDataFromApi = async (API,apiKey,sendSlackMessage) => {
  * @param {Function} sendSlackMessage - Function to send error messages to Slack.
  * @returns {Promise<Object>} - The JSON data from the API response.
  */
-export const sendDataToApi = async (API,apiKey,patchOperation,sendSlackMessage) => {
+const sendDataToApi = async (API,apiKey,patchOperation,sendSlackMessage) => {
     let resp = await fetch(
         `${API}`,
         {
@@ -77,3 +75,5 @@ export const sendDataToApi = async (API,apiKey,patchOperation,sendSlackMessage) 
     const data = await resp.json();
     return data;
 }
+
+module.exports = { sendDataToApi,fetchDataFromApi };

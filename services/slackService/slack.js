@@ -1,6 +1,4 @@
 
-import fetch from 'node-fetch';
-
 /**
  * Sends a message to a Slack channel using a webhook.
  * 
@@ -12,7 +10,7 @@ import fetch from 'node-fetch';
  * @throws {Error} - Throws an error if the fetch request fails.
  */
 const SLACK_WEBHOOK='https://hooks.slack.com/services/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';
-export async function sendSlackMessage(message) {
+async function sendSlackMessage(message) {
   const payload = message.blocks ? message : { text: message };
   const response = await fetch(`${SLACK_WEBHOOK}`, {
     method: 'POST',
@@ -22,3 +20,4 @@ export async function sendSlackMessage(message) {
     body: JSON.stringify(payload),
   });
 }
+module.exports = {sendSlackMessage }
