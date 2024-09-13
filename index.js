@@ -1,23 +1,26 @@
-const {processLdRequestWorkflow} = require('./lambda/processLdRequest.js');
+const { processLdRequestWorkflow } = require('./lambda/processLdRequest.js'),
 
-/**
- * Lambda function handler that executes the LaunchDarkly request processing workflow.
- * 
- * @returns {Promise<Object>} - A promise that resolves to an object with statusCode and body properties.
- * @throws {Error} - Throws an error if `processLdRequestWorkflow` fails, which is caught and logged.
- */
-const handler = async () => {
+  /**
+   * Lambda function handler that executes the LaunchDarkly request processing workflow.
+   *
+   * @returns {Promise<Object>} - A promise that resolves to an object with statusCode and body properties.
+   * @throws {Error} - Throws an error if `processLdRequestWorkflow` fails, which is caught and logged.
+   */
+  handler = async () => {
     try {
-        await processLdRequestWorkflow();
-        return { statusCode: 200, body: JSON.stringify('Success') };
-    } catch (error) {
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ message: 'Internal Server Error' }),
-        };
+      await processLdRequestWorkflow();
+
+      return { statusCode: 200, body: JSON.stringify('Success') };
     }
-};
-module.exports = { handler }
+    catch (error) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ message: 'Internal Server Error' })
+      };
+    }
+  };
+
+module.exports = { handler };
 
 // For testing purposes
 if (require.main === module) {

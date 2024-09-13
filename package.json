@@ -17,5 +17,10 @@
     "lodash": "^4.17.21",
     "node-fetch": "^3.3.2",
     "zlib": "^1.0.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.10.0",
+    "eslint": "^9.10.0",
+    "globals": "^15.9.0"
   }
 }
