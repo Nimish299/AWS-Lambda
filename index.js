@@ -1,4 +1,4 @@
-import processLdRequestWorkflow from './processLdRequest.js';
+import processLdRequestWorkflow from './lambda/processLdRequest.js';
 
 
 /**
@@ -18,4 +18,3 @@ export const handler = async () => {
         };
     }
 };
-handler()

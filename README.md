@@ -12,7 +12,7 @@ This pipeline automates the process of updating email domains in LaunchDarkly (L
 
                                 ------ s3services -----> S3
                             |
-            Handler -----> processLdRequest
+            index.handler -----> processLdRequest
                             |
                                 ------ ldservices -----> LD
 
