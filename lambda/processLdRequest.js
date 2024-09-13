@@ -1,3 +1,4 @@
+/* eslint-disable no-process-env */
 const { fetchDataFromApi, sendDataToApi } = require('../services/ldService/ld.js');
 const { ListObjects, GetObject } = require('../services/s3Service/s3.js');
 const { sendSlackMessage } = require('../services/slackService/slack.js');
@@ -14,7 +15,8 @@ const zlib = require('zlib'),
   apiKey = process.env.API_KEY,
   baseUrl = process.env.LD_BASE_URL;
 
-let last_update_Date;
+let last_update_Date,
+  all_Manifest_url = [];
 
 /**
  * Updates the last update date based on the rule descriptions in `segmentData`.
@@ -67,6 +69,39 @@ function setDescription (segmentData) {
 }
 
 /**
+ * Sorts an array of S3 manifest URLs based on the embedded date and time in the path.
+ * The manifest URLs are assumed to have the format:
+ * 'pqa_trials/YYYY/MM/DD/HHMMSS0000/manifest'
+ *
+ * @param {string[]} manifestUrls - The array of manifest URLs to be sorted.
+ * @returns {string[]} The sorted array of manifest URLs.
+ */
+function sortManifestUrls (manifestUrls) {
+  // Function to extract the timestamp from the manifest URL
+  const extractTimestamp = (url) => {
+    const parts = url.split('/'),
+      year = parts[1],
+      month = parts[2],
+      day = parts[3],
+      time = parts[4]; // HHMMSS0000
+
+    // Combine the year, month, day, and time to create a comparable timestamp
+    return `${year}${month}${day}${time}`;
+  };
+
+  // Sort the manifest URLs based on their extracted timestamp
+  manifestUrls.sort((a, b) => {
+    const timestampA = extractTimestamp(a),
+      timestampB = extractTimestamp(b);
+
+    return timestampA.localeCompare(timestampB); // Compare the two timestamps
+  });
+
+  return manifestUrls; // Return the sorted array
+}
+
+
+/**
  * Fetches all dates from the last update date to the current date.
  *
  * This function generates an array of date objects starting from the
@@ -88,6 +123,7 @@ function fetchDates () {
   endOfCurrentDate.setUTCHours(0, 0, 0, 0);
   endOfCurrentDate.setUTCDate(endOfCurrentDate.getUTCDate() + 1);
 
+  // eslint-disable-next-line no-unmodified-loop-condition
   while (tempDate < endOfCurrentDate) {
     Results.push(new Date(tempDate));
     tempDate.setUTCDate(tempDate.getUTCDate() + 1);
@@ -120,6 +156,75 @@ function streamToString (stream) {
   });
 }
 
+
+/**
+ * Processes the manifest files for a given day.
+ *
+ * This function retrieves the list of objects from S3 for a specified folder path,
+ * filters out manifest files that are not updated yet based on the last updated time,
+ * and adds their URLs to the `all_Manifest_url` array.
+ *
+ * @param {Date|string} day - The day to process, provided as a Date object or ISO date string.
+ * @returns {Promise<void>} A promise that resolves when the processing is complete.
+ */
+async function processDay (day) {
+  // Convert the input day to a Date object if it's a string
+  const date = new Date(day),
+
+    // Extracting Dates and preparing folder path...
+    dayDate = date.toISOString().split('T')[0],
+    lastDate = new Date(last_update_Date).toISOString().split('T')[0],
+    year = date.getUTCFullYear(),
+    month = String(date.getUTCMonth() + 1).padStart(2, '0'),
+    dateStr = String(date.getUTCDate()).padStart(2, '0'),
+    folderPath = `pqa_trials/${year}/${month}/${dateStr}/`;
+
+  let Last_updated_Time,
+    Manifest_url = [];
+
+  if (dayDate === lastDate) {
+    const hours = String(last_update_Date.getUTCHours()).padStart(2, '0'),
+      minutes = String(last_update_Date.getUTCMinutes()).padStart(2, '0'),
+      seconds = String(last_update_Date.getUTCSeconds()).padStart(2, '0');
+
+    Last_updated_Time = `${hours}${minutes}${seconds}0000`;
+  }
+  else {
+    Last_updated_Time = 0;
+  }
+
+  try {
+    // Retrieve the list of objects from S3
+    const response = await ListObjects(folderPath),
+
+      // Filter the list of objects to include only manifest files that are updated
+      filteredContents = _.filter(response.Contents, (item) => {
+        const parts = item.Key.split('/');
+
+        if (parts.length > 4 && parts[4] && parts[5] === 'manifest') {
+          const numericPart = parts[4];
+
+          return numericPart > Last_updated_Time;
+        }
+
+        return false;
+      });
+
+    // Collect the URLs of the filtered manifest files
+    filteredContents.forEach((item) => {
+      Manifest_url.push(item.Key);
+    });
+
+    // Add collected URLs to the global array
+    all_Manifest_url.push(...Manifest_url);
+  }
+  catch (error) {
+    // Send error message if list retrieval fails
+    sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
+    throw error;
+  }
+}
+
 /**
  * Handles the workflow for processing a LaunchDarkly (LD) request.
  *
@@ -143,90 +248,28 @@ async function processLdRequestWorkflow () {
   try {
     // Extract all days between the last updated date and today
     const days = fetchDates();
-    let all_Manifest_url = [],
-      All_File_urls = [],
-      lastFilePath;
+    let All_File_urls = [],
+      lastFilePath,
+      promise_array,
+      // Array to store promises for each day's processing
+      promises = [];
+
     // Extracting All the URN of data file from Manifest  from Last updated date to current date
-
     for (const day of days) {
-      // Extracting Dates For Condition on Fetching Manifest file
-      // As it come in format YYYY-MM-DDTHH:mm:ss.sssZ so split it Using T
-
-      // Day date
-      const dayDate = new Date(day).toISOString().split('T')[0],
-        // last Updated Date
-        lastDate = new Date(last_update_Date).toISOString().split('T')[0],
-        // Folder structure in S3 is  pqa_trials/strftime('%Y/%m/%d/%H%M%S0000')
-        year = day.getUTCFullYear(),
-        // Month is zero-based, so add 1
-        month = String(day.getUTCMonth() + 1).padStart(2, '0'),
-        date = String(day.getUTCDate()).padStart(2, '0'),
-        // Construct the folder path based on the date components
-        folderPath = `pqa_trials/${year}/${month}/${date}/`;
-
-      /**
-     * Pointing the cursor to the last updated time.
-     * Adding a condition to start from the next time after the last update.
-     * If the lambda function runs twice a day, this ensures it continues from the correct time.
-     */
-      let Last_updated_Time, response,
-        Manifest_url = [],
-        filteredContents = [];
-
-      if (dayDate === lastDate) {
-        // Extract hours, minutes, and seconds from the last updated date
-        const hours = String(last_update_Date.getUTCHours()).padStart(2, '0'),
-          minutes = String(last_update_Date.getUTCMinutes()).padStart(2, '0'),
-          seconds = String(last_update_Date.getUTCSeconds()).padStart(2, '0');
-
-        Last_updated_Time = `${hours}${minutes}${seconds}0000`;
-      }
-      else {
-        Last_updated_Time = 0;
-      }
-
-      try {
-        // List of  Objects on S3 on given folder Path
-        response = await ListObjects(folderPath);
-      }
-      catch (error) {
-        sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
-        throw error;
-      }
-
-      /**
-       *
-       * Filter all the manifest file  which are not updated yet
-       *   code filters the list of S3 objects to include only those
-       * manifest files that have a timestamp greater than the last updated time.
-       */
-      filteredContents = _.filter(response.Contents, (item) => {
-        const parts = item.Key.split('/');
-
-        if (parts.length > 4 && parts[4] && parts[5] === 'manifest') {
-          const numericPart = parts[4];
-
-          return numericPart > Last_updated_Time;
-        }
-
-        return false;
-      });
-
-      // Store all Url file
-
-
-      // Filter all key from Manifest File
-      filteredContents.forEach((item) => {
-        // Add each manifest file's key (URL) to the Manifest_url array
-        Manifest_url.push(item.Key);
-      });
-      // Store all Url in all_Manifest_url
-      all_Manifest_url.push(...Manifest_url);
+      // For each day, push a promise returned by `processDay(day)` to the `promises` array
+      // This ensures all days are processed concurrently
+      promises.push(processDay(day)); // Push the async function call to promises array
     }
-    // Extract All File url using Manifest File
+    // Wait for all promises to resolve
+    await Promise.all(promises);
 
-    // Create an array of promises where each promise handles the extraction of file URLs from a manifest
-    All_File_urls = await Promise.all(all_Manifest_url.map(async (manifestPath) => {
+    // `all_Manifest_url` now contains all manifest URLs collected from all days
+    // Sort the URLs in ascending order
+    // Need latest  Manifest URL  to update last update date
+    all_Manifest_url = sortManifestUrls(all_Manifest_url);
+
+    // Extract All File url using Manifest File
+    promise_array = all_Manifest_url.map(async (manifestPath) => {
       try {
         // Fetch the manifest file from the given path
         const data = await GetObject(manifestPath),
@@ -244,11 +287,12 @@ async function processLdRequestWorkflow () {
 
         throw error;
       }
-    }));
+    });
+    // Create an array of promises where each promise handles the extraction of file URLs from a manifest
+    All_File_urls = await Promise.all(promise_array);
     All_File_urls = All_File_urls.flat();
     try {
-      // Create an array of promises where each promise handles the extraction of Domain from file URLs
-      Domains = await Promise.all(All_File_urls.map(async (filePath) => {
+      let promise_array = All_File_urls.map(async (filePath) => {
         try {
           // Remove the S3 bucket prefix from the file path
           filePath = filePath.replace(`s3://${BUCKET_NAME}/`, '');
@@ -282,7 +326,10 @@ async function processLdRequestWorkflow () {
             return [];
           }
         }
-      }));
+      });
+
+      // Create an array of promises where each promise handles the extraction of Domain from file URLs
+      Domains = await Promise.all(promise_array);
       Domains = Domains.flat();
     }
     catch (error) {
