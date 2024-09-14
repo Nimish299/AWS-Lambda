@@ -283,7 +283,7 @@ async function processLdRequestWorkflow () {
         return File_urls;
       }
       catch (error) {
-        await sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
+        sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
 
         throw error;
       }
@@ -333,7 +333,7 @@ async function processLdRequestWorkflow () {
       Domains = Domains.flat();
     }
     catch (error) {
-      await sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
+      sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
 
       // Return an empty array in case of error
       return []; // Return an empty array in case of error
@@ -352,7 +352,7 @@ async function processLdRequestWorkflow () {
         hour12: true,
         timeZone: 'UTC'
       });
-      await sendSlackMessage(`Domains is empty, So not updating on ${last_update_Date}`);
+      sendSlackMessage(`Domains is empty, So not updating on ${last_update_Date}`);
 
       return;
     }
@@ -387,7 +387,6 @@ async function processLdRequestWorkflow () {
             timeZone: 'UTC'
           });
 
-        // eslint-disable-next-line require-atomic-updates
         last_update_Date = formattedDate;
       }
       else {
@@ -396,7 +395,7 @@ async function processLdRequestWorkflow () {
     }
   }
   catch (error) {
-    await sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
+    sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
     throw error;
   }
 
@@ -495,11 +494,11 @@ async function processLdRequestWorkflow () {
           ]
         };
 
-      await sendSlackMessage(successMessage);
+      sendSlackMessage(successMessage);
     }
   }
   catch (error) {
-    await sendSlackMessage(`<@nimish.agrawal>Error Patching dates: ${error}`);
+    sendSlackMessage(`<@nimish.agrawal>Error Patching dates: ${error}`);
     throw error;
   }
 }
