@@ -6,17 +6,17 @@
  * If the request fails, it logs an error and optionally sends a Slack message.
  *
  * @param {string} API - The URL of the API endpoint to fetch data from.
- * @param {string} apiKey - The authorization key for accessing the API.
+ * @param {string} ldAccessToken - The authorization key for accessing the API.
  * @param {Function} sendSlackMessage - Function to send error messages to Slack.
  * @returns {Promise<Object|null>} - The JSON data from the API if successful, or null if there was an error.
  */
-const fetchDataFromApi = async (API, apiKey, sendSlackMessage) => {
+const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
   try {
     let resp = await fetch(`${API}`,
       {
         method: 'GET',
         headers: {
-          'Authorization': apiKey
+          'Authorization': ldAccessToken
         }
       });
 
@@ -24,7 +24,7 @@ const fetchDataFromApi = async (API, apiKey, sendSlackMessage) => {
       const errorText = await resp.text();
       // Send error message to Slack and log the error
 
-      await sendSlackMessage(`GET request failed with status ${resp.status}: ${errorText}`);
+      sendSlackMessage(`GET request failed with status ${resp.status}: ${errorText}`);
 
       return null;
     }
@@ -35,7 +35,7 @@ const fetchDataFromApi = async (API, apiKey, sendSlackMessage) => {
   }
   catch (error) {
   // Send error message to Slack and log the error
-    await sendSlackMessage(`Error fetching data from API: ${error.message}`);
+    sendSlackMessage(`Error fetching data from API: ${error.message}`);
 
     return null;
   }
@@ -49,34 +49,40 @@ const fetchDataFromApi = async (API, apiKey, sendSlackMessage) => {
  * it logs an error and optionally sends a Slack message.
  *
  * @param {string} API - The URL of the API endpoint to send data to.
- * @param {string} apiKey - The authorization key for accessing the API.
+ * @param {string} ldAccessToken - The authorization key for accessing the API.
  * @param {Array<Object>} patchOperation - The patch operations to include in the request body.
  * @param {Function} sendSlackMessage - Function to send error messages to Slack.
  * @returns {Promise<Object>} - The JSON data from the API response.
  */
 
-sendDataToApi = async (API, apiKey, patchOperation, sendSlackMessage) => {
-  let resp = await fetch(`${API}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': apiKey
-      },
-      body: JSON.stringify({
-        patch: [
-          ...patchOperation]
-      })
-    });
+sendDataToApi = async (API, ldAccessToken, patchOperation, sendSlackMessage) => {
+  try {
+    let resp = await fetch(`${API}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': ldAccessToken
+        },
+        body: JSON.stringify(patchOperation)
+      });
 
-  if (!resp.ok) {
-    const errorText = await resp.text();
+    if (!resp.ok) {
+      const errorText = await resp.text();
 
-    await sendSlackMessage(`PATCH request failed with status ${resp.status}: ${errorText}`);
+      sendSlackMessage(`PATCH request failed with status ${resp.status}: ${errorText}`);
+
+      return null;
+    }
+    const data = await resp.json();
+
+    return data;
   }
-  const data = await resp.json();
+  catch (error) {
+    sendSlackMessage(`Error sending PATCH request: ${error.message}`);
 
-  return data;
+    return null;
+  }
 };
 
 module.exports = { sendDataToApi, fetchDataFromApi };

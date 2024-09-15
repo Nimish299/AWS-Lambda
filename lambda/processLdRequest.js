@@ -1,4 +1,3 @@
-/* eslint-disable no-process-env */
 const { fetchDataFromApi, sendDataToApi } = require('../services/ldService/ld.js');
 const { ListObjects, GetObject } = require('../services/s3Service/s3.js');
 const { sendSlackMessage } = require('../services/slackService/slack.js');
@@ -7,16 +6,18 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const zlib = require('zlib'),
 
+  /* eslint-disable no-process-env */
+
   BUCKET_NAME = process.env.BUCKET_NAME,
   Limit = process.env.LIMIT,
   projectKey = process.env.PROJECT_KEY,
   environmentKey = process.env.ENVIRONMENT_KEY,
   segmentKey = process.env.SEGMENT_KEY,
-  apiKey = process.env.API_KEY,
+  ldAccessToken = process.env.API_KEY,
   baseUrl = process.env.LD_BASE_URL;
 
-let last_update_Date,
-  all_Manifest_url = [];
+let lastUpdatedDate,
+  allManifestUrls = [];
 
 /**
  * Updates the last update date based on the rule descriptions in `segmentData`.
@@ -29,43 +30,37 @@ let last_update_Date,
  *
  * @returns {Date} - The formatted date found in the description, or a fallback date if none is valid.
  */
-function setDescription (segmentData) {
-  let formattedDate;
+function setLastUpdateDateFromSegment (segmentData) {
+  let lastUpdateDate;
 
-  // Check the first rule's description to see if the date format is correct.
-  // If it's invalid, check the descriptions in all other rules.
-  // If no valid date format is found in any rule, default to a fallback date.
-  // default to a fallback date
+  const validRule = segmentData.rules.find((rule) => {
+    if (rule?.description) {
+      const longDateFormat = rule.description.replace(' at', '') + ' UTC',
+        parsedDate = new Date(longDateFormat);
 
-  const length = segmentData?.rules?.length;
-
-  if (length) {
-    for (let i = 0; i < segmentData.rules.length; i++) {
-      let description = segmentData.rules[i]?.description;
-
-      if (description) {
-        // Remove 'at' and append 'UTC' for proper date formatting
-        let longDateFormat = description.replace(' at', '') + ' UTC';
-        const parsedDate = new Date(longDateFormat);
-
-        if (!isNaN(parsedDate)) {
-          // Valid date found, break the loop
-          formattedDate = parsedDate;
-          break;
-        }
-      }
+      return !isNaN(parsedDate);
     }
+
+    return false;
+  });
+
+  if (validRule) {
+    const ruleDescription = validRule.description.replace(' at', '') + ' UTC';
+
+    lastUpdateDate = new Date(ruleDescription);
+  }
+  else {
+    const fallbackDate = process.env.FALLBACK_DATE || '2024-09-03';
+
+    lastUpdateDate = new Date(fallbackDate);
   }
 
-  // If no valid date was found, set a fallback date
-  if (!formattedDate) {
-    formattedDate = new Date('2024-09-03');
-
+  if (!validRule) {
     // eslint-disable-next-line max-len
-    sendSlackMessage(`<@nimish.agrawal> Fallback to default date as no valid date found in rules. Using fallback date: ${formattedDate}`);
+    sendSlackMessage(`<@${process.env.SLACK_USER}> Fallback to default date as no valid date found in rules. Using fallback date: ${lastUpdateDate}`);
   }
 
-  return formattedDate;
+  return lastUpdateDate;
 }
 
 /**
@@ -76,28 +71,32 @@ function setDescription (segmentData) {
  * @param {string[]} manifestUrls - The array of manifest URLs to be sorted.
  * @returns {string[]} The sorted array of manifest URLs.
  */
-function sortManifestUrls (manifestUrls) {
-  // Function to extract the timestamp from the manifest URL
+function sortS3ManifestUrlsByTimestamp (manifestUrls) {
+  if (!Array.isArray(manifestUrls) || manifestUrls.length === 0) {
+    // Return an empty array if input is invalid or empty
+    return [];
+  }
+
+  // Helper function to extract the timestamp from the manifest URL
   const extractTimestamp = (url) => {
-    const parts = url.split('/'),
-      year = parts[1],
-      month = parts[2],
-      day = parts[3],
-      time = parts[4]; // HHMMSS0000
+    const urlParts = url.split('/'),
+      year = urlParts[1],
+      month = urlParts[2],
+      day = urlParts[3],
+      // HHMMSS0000
+      time = urlParts[4];
 
     // Combine the year, month, day, and time to create a comparable timestamp
     return `${year}${month}${day}${time}`;
   };
 
   // Sort the manifest URLs based on their extracted timestamp
-  manifestUrls.sort((a, b) => {
+  return manifestUrls.sort((a, b) => {
     const timestampA = extractTimestamp(a),
       timestampB = extractTimestamp(b);
 
-    return timestampA.localeCompare(timestampB); // Compare the two timestamps
+    return timestampA.localeCompare(timestampB);
   });
-
-  return manifestUrls; // Return the sorted array
 }
 
 
@@ -105,31 +104,31 @@ function sortManifestUrls (manifestUrls) {
  * Fetches all dates from the last update date to the current date.
  *
  * This function generates an array of date objects starting from the
- * `last_update_Date` up to the current date.
+ * `lastUpdatedDate` up to the current date.
  *
  * @returns {Promise<Date[]>} - A promise that resolves to an array of Date objects representing each day
- * from the `last_update_Date` to the current date (inclusive).
+ * from the `lastUpdatedDate` to the current date (inclusive).
  */
-function fetchDates () {
+function getDatesFromLastUpdateToCurrent () {
   const currentDate = new Date(),
-    Results = [],
-    // last_update_Date is set by setDescription, which ensures a valid date or fallback
-    // so no need to check tempDate
-    tempDate = new Date(last_update_Date),
+    results = [];
 
-    // Normalize the time part of the currentDate to start of the day
-    endOfCurrentDate = new Date(currentDate);
+  // lastUpdatedDate is set by setDescription, which ensures a valid date or fallback
+  // so no need to check tempDate
+  let currentIteratingDate = new Date(lastUpdatedDate);
 
-  endOfCurrentDate.setUTCHours(0, 0, 0, 0);
-  endOfCurrentDate.setUTCDate(endOfCurrentDate.getUTCDate() + 1);
+  // Normalize currentDate to the start of the current day (00:00:00)
+  currentIteratingDate.setUTCHours(0, 0, 0, 0); // Start at midnight of the last update date
+  currentDate.setUTCHours(0, 0, 0, 0); // Start at midnight of the current date
 
+  // Iterate through each day from lastUpdatedDate to the current date (inclusive)
   // eslint-disable-next-line no-unmodified-loop-condition
-  while (tempDate < endOfCurrentDate) {
-    Results.push(new Date(tempDate));
-    tempDate.setUTCDate(tempDate.getUTCDate() + 1);
+  while (currentIteratingDate <= currentDate) {
+    results.push(new Date(currentIteratingDate));
+    currentIteratingDate.setUTCDate(currentIteratingDate.getUTCDate() + 1);
   }
 
-  return Results;
+  return results;
 }
 
 
@@ -162,35 +161,35 @@ function streamToString (stream) {
  *
  * This function retrieves the list of objects from S3 for a specified folder path,
  * filters out manifest files that are not updated yet based on the last updated time,
- * and adds their URLs to the `all_Manifest_url` array.
+ * and adds their URLs to the `allManifestUrls` array.
  *
  * @param {Date|string} day - The day to process, provided as a Date object or ISO date string.
  * @returns {Promise<void>} A promise that resolves when the processing is complete.
  */
-async function processDay (day) {
+async function processDailyManifests (day) {
   // Convert the input day to a Date object if it's a string
   const date = new Date(day),
 
     // Extracting Dates and preparing folder path...
     dayDate = date.toISOString().split('T')[0],
-    lastDate = new Date(last_update_Date).toISOString().split('T')[0],
+    lastDate = new Date(lastUpdatedDate).toISOString().split('T')[0],
     year = date.getUTCFullYear(),
     month = String(date.getUTCMonth() + 1).padStart(2, '0'),
     dateStr = String(date.getUTCDate()).padStart(2, '0'),
     folderPath = `pqa_trials/${year}/${month}/${dateStr}/`;
 
-  let Last_updated_Time,
-    Manifest_url = [];
+  let lastUpdatedTime,
+    manifest_url = [];
 
   if (dayDate === lastDate) {
-    const hours = String(last_update_Date.getUTCHours()).padStart(2, '0'),
-      minutes = String(last_update_Date.getUTCMinutes()).padStart(2, '0'),
-      seconds = String(last_update_Date.getUTCSeconds()).padStart(2, '0');
+    const hours = String(lastUpdatedDate.getUTCHours()).padStart(2, '0'),
+      minutes = String(lastUpdatedDate.getUTCMinutes()).padStart(2, '0'),
+      seconds = String(lastUpdatedDate.getUTCSeconds()).padStart(2, '0');
 
-    Last_updated_Time = `${hours}${minutes}${seconds}0000`;
+    lastUpdatedTime = `${hours}${minutes}${seconds}0000`;
   }
   else {
-    Last_updated_Time = 0;
+    lastUpdatedTime = 0;
   }
 
   try {
@@ -204,7 +203,7 @@ async function processDay (day) {
         if (parts.length > 4 && parts[4] && parts[5] === 'manifest') {
           const numericPart = parts[4];
 
-          return numericPart > Last_updated_Time;
+          return numericPart > lastUpdatedTime;
         }
 
         return false;
@@ -212,11 +211,11 @@ async function processDay (day) {
 
     // Collect the URLs of the filtered manifest files
     filteredContents.forEach((item) => {
-      Manifest_url.push(item.Key);
+      manifest_url.push(item.Key);
     });
 
     // Add collected URLs to the global array
-    all_Manifest_url.push(...Manifest_url);
+    allManifestUrls.push(...manifest_url);
   }
   catch (error) {
     // Send error message if list retrieval fails
@@ -238,38 +237,38 @@ async function processLdRequestWorkflow () {
   const API = `${baseUrl}/segments/${projectKey}/${environmentKey}/${segmentKey}`,
 
     // Fetching Data from LD
-    segmentData = await fetchDataFromApi(API, apiKey, sendSlackMessage);
+    segmentData = await fetchDataFromApi(API, ldAccessToken, sendSlackMessage);
 
   // Extract the last updated date from the description (i.e., rule name)
-  // last_update_Date is set by setDescription, which ensures a valid date or fallback
-  last_update_Date = setDescription(segmentData);
-  let Domains = [];
+  // lastUpdatedDate is set by setDescription, which ensures a valid date or fallback
+  lastUpdatedDate = setLastUpdateDateFromSegment(segmentData);
+  let domains = [];
 
   try {
     // Extract all days between the last updated date and today
-    const days = fetchDates();
-    let All_File_urls = [],
+    const daysToProcess = getDatesFromLastUpdateToCurrent();
+    let allFileUrls = [],
       lastFilePath,
-      promise_array,
+      manifestPromises,
       // Array to store promises for each day's processing
-      promises = [];
+      dayProcessingPromises = [];
 
     // Extracting All the URN of data file from Manifest  from Last updated date to current date
-    for (const day of days) {
-      // For each day, push a promise returned by `processDay(day)` to the `promises` array
+    for (const day of daysToProcess) {
+      // For each day, push a promise returned by `processDailyManifests(day)` to the `promises` array
       // This ensures all days are processed concurrently
-      promises.push(processDay(day)); // Push the async function call to promises array
+      dayProcessingPromises.push(processDailyManifests(day)); // Push the async function call to promises array
     }
     // Wait for all promises to resolve
-    await Promise.all(promises);
+    await Promise.all(dayProcessingPromises);
 
-    // `all_Manifest_url` now contains all manifest URLs collected from all days
+    // `allManifestUrls` now contains all manifest URLs collected from all days
     // Sort the URLs in ascending order
     // Need latest  Manifest URL  to update last update date
-    all_Manifest_url = sortManifestUrls(all_Manifest_url);
+    allManifestUrls = sortS3ManifestUrlsByTimestamp(allManifestUrls);
 
     // Extract All File url using Manifest File
-    promise_array = all_Manifest_url.map(async (manifestPath) => {
+    manifestPromises = allManifestUrls.map(async (manifestPath) => {
       try {
         // Fetch the manifest file from the given path
         const data = await GetObject(manifestPath),
@@ -289,10 +288,10 @@ async function processLdRequestWorkflow () {
       }
     });
     // Create an array of promises where each promise handles the extraction of file URLs from a manifest
-    All_File_urls = await Promise.all(promise_array);
-    All_File_urls = All_File_urls.flat();
+    allFileUrls = await Promise.all(manifestPromises);
+    allFileUrls = allFileUrls.flat();
     try {
-      let promise_array = All_File_urls.map(async (filePath) => {
+      let domainPromises = allFileUrls.map(async (filePath) => {
         try {
           // Remove the S3 bucket prefix from the file path
           filePath = filePath.replace(`s3://${BUCKET_NAME}/`, '');
@@ -310,7 +309,7 @@ async function processLdRequestWorkflow () {
             // Create a CSV parser to handle the incoming data
             parser = csv({ headers: false });
 
-          // Process each row from the CSV stream and extracting Domains
+          // Process each row from the CSV stream and extracting domains
           for await (const row of csvStream.pipe(parser)) {
             const domain = row[0];
 
@@ -329,8 +328,8 @@ async function processLdRequestWorkflow () {
       });
 
       // Create an array of promises where each promise handles the extraction of Domain from file URLs
-      Domains = await Promise.all(promise_array);
-      Domains = Domains.flat();
+      domains = await Promise.all(domainPromises);
+      domains = domains.flat();
     }
     catch (error) {
       sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
@@ -341,8 +340,8 @@ async function processLdRequestWorkflow () {
 
 
     // No Need to update if there are no domain
-    if (Domains.length === 0) {
-      last_update_Date = last_update_Date.toLocaleString('en-US', {
+    if (domains.length === 0) {
+      let formattedLastUpdate = lastUpdatedDate.toLocaleString('en-US', {
         month: 'long',
         day: 'numeric',
         year: 'numeric',
@@ -352,14 +351,15 @@ async function processLdRequestWorkflow () {
         hour12: true,
         timeZone: 'UTC'
       });
-      sendSlackMessage(`Domains is empty, So not updating on ${last_update_Date}`);
+
+      sendSlackMessage(`domains is empty, So not updating on ${formattedLastUpdate}`);
 
       return;
     }
 
 
-    // update the last_update_Date
-    lastFilePath = _.last(All_File_urls);
+    // update the lastUpdatedDate
+    lastFilePath = _.last(allFileUrls);
 
     if (lastFilePath) {
       // Take the Time part from URL
@@ -387,7 +387,7 @@ async function processLdRequestWorkflow () {
             timeZone: 'UTC'
           });
 
-        last_update_Date = formattedDate;
+        lastUpdatedDate = formattedDate;
       }
       else {
         sendSlackMessage(`<@nimish.agrawal>'Invalid numeric part format in': ${lastFilePath}`);
@@ -401,10 +401,10 @@ async function processLdRequestWorkflow () {
 
   try {
     // Just to make sure it run if we get any new domain
-    if (Domains.length > 0) {
+    if (domains.length > 0) {
       let patchOperation = [],
-        updatedEmailDomains = [...Domains],
-        operationType = 'add';
+        updatedEmailDomains = [...domains],
+        initialOperationType = 'add';
 
       // Check if there is some rule exist or not
       if (segmentData.rules && segmentData.rules.length > 0) {
@@ -412,7 +412,7 @@ async function processLdRequestWorkflow () {
 
         // Merge old data with new data as we will replace First rule till limit
         updatedEmailDomains = [...existingEmailDomains, ...updatedEmailDomains];
-        operationType = 'replace';
+        initialOperationType = 'replace';
       }
       // Check if the number of updated email domains exceeds the limit
       if (updatedEmailDomains.length > Limit) {
@@ -423,7 +423,7 @@ async function processLdRequestWorkflow () {
           // Json to be send on patchOperation
           patchOperation.push({
             // Use 'replace' for the first chunk, 'add' for subsequent chunks
-            op: count === 0 ? operationType : 'add',
+            op: count === 0 ? initialOperationType : 'add',
             path: '/rules/0',
             value: {
               clauses: [
@@ -435,7 +435,7 @@ async function processLdRequestWorkflow () {
                   negate: false
                 }
               ],
-              description: last_update_Date
+              description: lastUpdatedDate
 
 
             }
@@ -444,7 +444,7 @@ async function processLdRequestWorkflow () {
       }
       else {
         patchOperation.push({
-          op: operationType,
+          op: initialOperationType,
           path: '/rules/0',
           value: {
             clauses: [
@@ -456,7 +456,7 @@ async function processLdRequestWorkflow () {
                 negate: false
               }
             ],
-            description: last_update_Date
+            description: lastUpdatedDate
 
           }
         });
@@ -464,8 +464,8 @@ async function processLdRequestWorkflow () {
       // API URL for patching domains in LaunchDarkly (LD)
 
       // Send the patch operation to the API and log the response
-      await sendDataToApi(API, apiKey, patchOperation, sendSlackMessage);
-      const numberOfDomains = Domains.length,
+      await sendDataToApi(API, ldAccessToken, patchOperation, sendSlackMessage);
+      const numberOfDomains = domains.length,
 
         successMessage = {
           'text': 'Domain Update Notification',
@@ -487,7 +487,7 @@ async function processLdRequestWorkflow () {
                 },
                 {
                   'type': 'mrkdwn',
-                  'text': `*Last updated:* ${last_update_Date}`
+                  'text': `*Last updated:* ${lastUpdatedDate}`
                 }
               ]
             }
