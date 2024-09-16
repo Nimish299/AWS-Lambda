@@ -56,10 +56,8 @@ function setLastUpdateDateFromSegment (segmentData) {
   }
 
   if (!validRule) {
-    let fallbackDate = new Date(lastUpdatedDate).toISOString().split('T')[0];
-
     // eslint-disable-next-line max-len
-    sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${fallbackDate}`);
+    sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${lastUpdateDate}`);
   }
 
   return lastUpdateDate;
