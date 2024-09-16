@@ -333,6 +333,7 @@ async function processLdRequestWorkflow () {
       // Create an array of promises where each promise handles the extraction of Domain from file URLs
       domains = await Promise.all(domainPromises);
       domains = domains.flat();
+      domains = _.uniq(_.compact(domains));
     }
     catch (error) {
       await sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
@@ -407,7 +408,8 @@ async function processLdRequestWorkflow () {
     if (domains.length > 0) {
       let patchOperation = [],
         updatedEmailDomains = [...domains],
-        initialOperationType = 'add';
+        initialOperationType = 'add',
+        resp;
 
       // Check if there is some rule exist or not
       if (segmentData.rules && segmentData.rules.length > 0) {
@@ -465,7 +467,7 @@ async function processLdRequestWorkflow () {
         });
       }
       // Send the patch operation to the API and log the response
-      await sendDataToApi(API, ldAccessToken, patchOperation, sendSlackMessage);
+      resp = await sendDataToApi(API, ldAccessToken, patchOperation, sendSlackMessage);
       const numberOfDomains = domains.length,
 
         successMessage = {
@@ -495,7 +497,9 @@ async function processLdRequestWorkflow () {
           ]
         };
 
-      await sendSlackMessage(successMessage);
+      if (resp.ok) {
+        await sendSlackMessage(successMessage);
+      }
     }
   }
   catch (error) {

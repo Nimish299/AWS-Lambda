@@ -25,8 +25,6 @@ const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
       // Send error message to Slack and log the error
 
       sendSlackMessage(`GET request failed with status ${resp.status}: ${errorText}`);
-
-      return null;
     }
 
     const data = await resp.json();
@@ -37,7 +35,7 @@ const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
   // Send error message to Slack and log the error
     sendSlackMessage(`Error fetching data from API: ${error.message}`);
 
-    return null;
+    throw error;
   }
 },
 
@@ -71,17 +69,14 @@ sendDataToApi = async (API, ldAccessToken, patchOperation, sendSlackMessage) => 
       const errorText = await resp.text();
 
       sendSlackMessage(`PATCH request failed with status ${resp.status}: ${errorText}`);
-
-      return null;
     }
-    const data = await resp.json();
 
-    return data;
+    return resp;
   }
   catch (error) {
     sendSlackMessage(`Error sending PATCH request: ${error.message}`);
 
-    return null;
+    throw error;
   }
 };
 
