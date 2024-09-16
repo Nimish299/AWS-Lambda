@@ -24,7 +24,7 @@ let lastUpdatedDate,
  *
  * The function searches through the `description` field of each rule in `segmentData`.
  * It tries to parse the description as a date. If a valid date is found, it is used as the last update date.
- * If no valid date is found in any rule, a fallback date is used.
+ * If no valid date is found in any rules, a fallback date is used.
  *
  * @param {Object} segmentData - The segment data containing rules with descriptions.
  *
@@ -181,6 +181,11 @@ async function processDailyManifests (day) {
   let lastUpdatedTime,
     manifest_url = [];
 
+
+  /**
+            * Pointing the cursor to the last updated time.
+            * Adding a condition to start from the next time after the last update.
+            */
   if (dayDate === lastDate) {
     const hours = String(lastUpdatedDate.getUTCHours()).padStart(2, '0'),
       minutes = String(lastUpdatedDate.getUTCMinutes()).padStart(2, '0'),
@@ -189,7 +194,7 @@ async function processDailyManifests (day) {
     lastUpdatedTime = `${hours}${minutes}${seconds}0000`;
   }
   else {
-    lastUpdatedTime = 0;
+    lastUpdatedTime = '0000000000';
   }
 
   try {
@@ -255,9 +260,9 @@ async function processLdRequestWorkflow () {
 
     // Extracting All the URN of data file from Manifest  from Last updated date to current date
     for (const day of daysToProcess) {
-      // For each day, push a promise returned by `processDailyManifests(day)` to the `promises` array
+      // For each day, push a promise returned by processDailyManifests(day) to the dayProcessingPromises array
       // This ensures all days are processed concurrently
-      dayProcessingPromises.push(processDailyManifests(day)); // Push the async function call to promises array
+      dayProcessingPromises.push(processDailyManifests(day));
     }
     // Wait for all promises to resolve
     await Promise.all(dayProcessingPromises);
@@ -274,11 +279,9 @@ async function processLdRequestWorkflow () {
         const data = await GetObject(manifestPath),
           // Convert the readable stream  to a string
           manifestContent = await streamToString(data.Body),
-          // Parse the manifest content
           manifestJson = JSON.parse(manifestContent),
           File_urls = manifestJson.entries.map((entry) => { return entry.url; });
 
-        // Return the extracted URLs
         return File_urls;
       }
       catch (error) {
@@ -461,8 +464,6 @@ async function processLdRequestWorkflow () {
           }
         });
       }
-      // API URL for patching domains in LaunchDarkly (LD)
-
       // Send the patch operation to the API and log the response
       await sendDataToApi(API, ldAccessToken, patchOperation, sendSlackMessage);
       const numberOfDomains = domains.length,
@@ -503,5 +504,4 @@ async function processLdRequestWorkflow () {
   }
 }
 
-// export default processLdRequestWorkflow;
 module.exports = { processLdRequestWorkflow };
