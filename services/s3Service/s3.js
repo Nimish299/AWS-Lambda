@@ -1,6 +1,7 @@
 const dotenv = require('dotenv');
 
 dotenv.config();
+/* eslint-disable no-process-env */
 
 const { S3Client, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3'),
   s3 = new S3Client({ region: process.env.AWS_REGION });

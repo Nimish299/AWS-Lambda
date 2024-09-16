@@ -50,14 +50,17 @@ function setLastUpdateDateFromSegment (segmentData) {
     lastUpdateDate = new Date(ruleDescription);
   }
   else {
-    const fallbackDate = process.env.FALLBACK_DATE || '2024-09-03';
+    const fallbackDate = process.env.FALLBACK_DATE || '2024-01-01';
+
 
     lastUpdateDate = new Date(fallbackDate);
   }
 
   if (!validRule) {
+    const formatlastdate = new Date(lastUpdateDate).toDateString();
     // eslint-disable-next-line max-len
-    sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${lastUpdateDate}`);
+
+    sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${formatlastdate}`);
   }
 
   return lastUpdateDate;
@@ -224,7 +227,7 @@ async function processDailyManifests (day) {
   }
   catch (error) {
     // Send error message if list retrieval fails
-    await sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
+    await sendSlackMessage(`<@trial-enginees>Error processing List at ${folderPath}: ${error}`);
     throw error;
   }
 }
@@ -285,7 +288,7 @@ async function processLdRequestWorkflow () {
         return File_urls;
       }
       catch (error) {
-        await sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
+        await sendSlackMessage(`<@trial-engineers>Error processing manifest at ${manifestPath}: ${error}`);
 
         throw error;
       }
@@ -323,7 +326,7 @@ async function processLdRequestWorkflow () {
         }
         catch (error) {
           if (error.name === 'NoSuchKey') {
-            await sendSlackMessage(`<@nimish.agrawal>${filePath}, skipping... `);
+            await sendSlackMessage(`<@trial-engineers>${filePath}, skipping... `);
 
             return [];
           }
@@ -336,7 +339,7 @@ async function processLdRequestWorkflow () {
       domains = _.uniq(_.compact(domains));
     }
     catch (error) {
-      await sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
+      await sendSlackMessage(`<@trial-engineers>Error processing file: ${error}`);
 
       // Return an empty array in case of error
       return []; // Return an empty array in case of error
@@ -394,12 +397,12 @@ async function processLdRequestWorkflow () {
         lastUpdatedDate = formattedDate;
       }
       else {
-        await sendSlackMessage(`<@nimish.agrawal>'Invalid numeric part format in': ${lastFilePath}`);
+        await sendSlackMessage(`<@trial-engineers>'Invalid numeric part format in': ${lastFilePath}`);
       }
     }
   }
   catch (error) {
-    await sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
+    await sendSlackMessage(`<@trial-engineers>Error processing data From S3: ${error}`);
     throw error;
   }
 
@@ -503,7 +506,7 @@ async function processLdRequestWorkflow () {
     }
   }
   catch (error) {
-    sendSlackMessage(`<@nimish.agrawal>Error Patching dates: ${error}`);
+    sendSlackMessage(`<@trial-engineers>Error Patching dates: ${error}`);
     throw error;
   }
 }

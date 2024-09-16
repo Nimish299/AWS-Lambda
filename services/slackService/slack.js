@@ -1,6 +1,5 @@
 
-const SLACK_WEBHOOK = 'https://hooks.slack.com/services/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';
-
+const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK;
 /**
  * Sends a message to a Slack channel using a webhook.
  *
