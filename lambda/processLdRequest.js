@@ -56,8 +56,10 @@ function setLastUpdateDateFromSegment (segmentData) {
   }
 
   if (!validRule) {
+    let fallbackDate = new Date(lastUpdatedDate).toISOString().split('T')[0];
+
     // eslint-disable-next-line max-len
-    sendSlackMessage(`<@${process.env.SLACK_USER}> Fallback to default date as no valid date found in rules. Using fallback date: ${lastUpdateDate}`);
+    sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${fallbackDate}`);
   }
 
   return lastUpdateDate;
@@ -219,7 +221,7 @@ async function processDailyManifests (day) {
   }
   catch (error) {
     // Send error message if list retrieval fails
-    sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
+    await sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
     throw error;
   }
 }
@@ -282,7 +284,7 @@ async function processLdRequestWorkflow () {
         return File_urls;
       }
       catch (error) {
-        sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
+        await sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
 
         throw error;
       }
@@ -320,7 +322,7 @@ async function processLdRequestWorkflow () {
         }
         catch (error) {
           if (error.name === 'NoSuchKey') {
-            sendSlackMessage(`<@nimish.agrawal>${filePath}, skipping... `);
+            await sendSlackMessage(`<@nimish.agrawal>${filePath}, skipping... `);
 
             return [];
           }
@@ -332,7 +334,7 @@ async function processLdRequestWorkflow () {
       domains = domains.flat();
     }
     catch (error) {
-      sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
+      await sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
 
       // Return an empty array in case of error
       return []; // Return an empty array in case of error
@@ -352,7 +354,7 @@ async function processLdRequestWorkflow () {
         timeZone: 'UTC'
       });
 
-      sendSlackMessage(`domains is empty, So not updating on ${formattedLastUpdate}`);
+      await sendSlackMessage(`domains is empty, So not updating on ${formattedLastUpdate}`);
 
       return;
     }
@@ -390,12 +392,12 @@ async function processLdRequestWorkflow () {
         lastUpdatedDate = formattedDate;
       }
       else {
-        sendSlackMessage(`<@nimish.agrawal>'Invalid numeric part format in': ${lastFilePath}`);
+        await sendSlackMessage(`<@nimish.agrawal>'Invalid numeric part format in': ${lastFilePath}`);
       }
     }
   }
   catch (error) {
-    sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
+    await sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
     throw error;
   }
 
@@ -494,7 +496,7 @@ async function processLdRequestWorkflow () {
           ]
         };
 
-      sendSlackMessage(successMessage);
+      await sendSlackMessage(successMessage);
     }
   }
   catch (error) {
