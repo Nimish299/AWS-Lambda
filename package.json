@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.645.0",
     "csv-parser": "^3.0.0",
+    "dayjs": "^1.11.13",
     "dotenv": "^16.4.5",
     "lodash": "^4.17.21",
     "node-fetch": "^3.3.2",
