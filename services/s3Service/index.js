@@ -65,7 +65,7 @@ async function GetObject (key) {
       return [];
     }
 
-    throw error;
+    return Promise.reject(error);
   }
 }
 

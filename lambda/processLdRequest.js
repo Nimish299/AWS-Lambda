@@ -57,7 +57,6 @@ function setLastUpdateDateFromSegment (segmentData) {
     sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${formatlastdate}`);
   }
 
-
   return lastUpdateDate;
 }
 
@@ -75,6 +74,7 @@ function sortS3ManifestUrlsByTimestamp (manifestUrls) {
     return [];
   }
 
+  // Sort the manifest URLs based on their extracted timestamp
   return _.sortBy(manifestUrls, (url) => {
     const [, year, month, day, time] = url.split('/');
 
@@ -155,7 +155,7 @@ function streamToString (stream) {
 async function processDailyManifests (day, lastUpdatedDate, allManifestUrls) {
   // Convert the input day to a Date object if it's a string
   const date = dayjs(day),
-
+    // Extracting Dates and preparing folder path...
     dayDate = date.utc().format('YYYY-MM-DD'),
     lastDate = dayjs(lastUpdatedDate).utc().format('YYYY-MM-DD'),
     year = date.utc().format('YYYY'),
@@ -213,7 +213,7 @@ async function processDailyManifests (day, lastUpdatedDate, allManifestUrls) {
   }
   catch (error) {
     // Send error message if list retrieval fails
-    await sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
+    await sendSlackMessage(`<@trial-engineers >Error processing List at ${folderPath}: ${error}`);
 
     return Promise.reject(error);
   }
@@ -237,9 +237,7 @@ async function processLdRequestWorkflow () {
     lastUpdatedDate;
 
   if (segmentData.isError) {
-    console.error(segmentData.errorMessage);
-
-    return; // Stop further execution if needed
+    return Promise.reject(segmentData.errorMessage);
   }
   segmentData = segmentData.data;
 
@@ -284,7 +282,7 @@ async function processLdRequestWorkflow () {
         return File_urls;
       }
       catch (error) {
-        await sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
+        await sendSlackMessage(`<@trial-engineers >Error processing manifest at ${manifestPath}: ${error}`);
 
         return Promise.reject(error);
       }
@@ -303,7 +301,7 @@ async function processLdRequestWorkflow () {
 
           // Check if the object exists and data.Body is defined
           if (!data || !data.Body) {
-            await sendSlackMessage(`<@nimish.agrawal> ${filePath} is empty or missing. Skipping...`);
+            await sendSlackMessage(`<@trial-engineers > ${filePath} is empty or missing. Skipping...`);
 
             return [];
           }
@@ -315,7 +313,7 @@ async function processLdRequestWorkflow () {
         }
         catch (error) {
           if (error.name === 'NoSuchKey') {
-            await sendSlackMessage(`<@nimish.agrawal>${filePath}, skipping... `);
+            await sendSlackMessage(`<@trial-engineers >${filePath}, skipping... `);
 
             return [];
           }
@@ -329,7 +327,7 @@ async function processLdRequestWorkflow () {
       domains = _.uniq(_.compact(domains));
     }
     catch (error) {
-      await sendSlackMessage(`<@nimish.agrawal>Error processing file: ${error}`);
+      await sendSlackMessage(`<@trial-engineers >Error processing file: ${error}`);
 
       // Return an empty array in case of error
       return []; // Return an empty array in case of error
@@ -342,7 +340,7 @@ async function processLdRequestWorkflow () {
           .utc()
           .format('MMMM D, YYYY, h:mm:ss A [UTC]'),
 
-        successMessage = formatSuccessMessage(formattedLastUpdate, 0);
+        successMessage = await formatSuccessMessage(formattedLastUpdate, 0);
 
       await sendSlackMessage(successMessage);
 
@@ -369,12 +367,12 @@ async function processLdRequestWorkflow () {
         lastUpdatedDate = formattedDate;
       }
       else {
-        await sendSlackMessage(`<@nimish.agrawal> 'Invalid numeric part format in': ${lastFilePath}`);
+        await sendSlackMessage(`<@trial-engineers > 'Invalid numeric part format in': ${lastFilePath}`);
       }
     }
   }
   catch (error) {
-    await sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
+    await sendSlackMessage(`<@trial-engineers >Error processing data From S3: ${error}`);
 
     return Promise.reject(error);
   }
@@ -449,7 +447,7 @@ async function processLdRequestWorkflow () {
       }
       const numberOfDomains = domains.length,
 
-        successMessage = formatSuccessMessage(lastUpdatedDate, numberOfDomains);
+        successMessage = await formatSuccessMessage(lastUpdatedDate, numberOfDomains);
 
       if (resp.data.ok) {
         await sendSlackMessage(successMessage);
@@ -457,7 +455,7 @@ async function processLdRequestWorkflow () {
     }
   }
   catch (error) {
-    sendSlackMessage(`<@nimish.agrawal>Error Patching dates: ${error}`);
+    sendSlackMessage(`<@trial-engineers >Error Patching dates: ${error}`);
 
     return Promise.reject(error);
   }

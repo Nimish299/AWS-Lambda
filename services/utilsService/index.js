@@ -95,7 +95,7 @@ async function unzipAndParseCSV (gzippedData, hasHeaders = false, columnIndex = 
     return parsedData;
   }
   catch (error) {
-    await sendSlackMessage(`<@nimish.agrawal>Error during unzipping or parsing CSV data:: ${error}`);
+    await sendSlackMessage(`<@trial-engineers >Error during unzipping or parsing CSV data:: ${error}`);
 
     return Promise.reject(error);
   }
