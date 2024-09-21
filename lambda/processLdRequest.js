@@ -1,12 +1,11 @@
 const { fetchDataFromApi, sendDataToApi } = require('../services/ldService/index.js');
 const { ListObjects, GetObject } = require('../services/s3Service/index.js');
 const { sendSlackMessage } = require('../services/slackService/index.js');
+const { formatSuccessMessage, formatDateTimeString, unzipAndParseCSV } = require('../services/utilsService');
 const _ = require('lodash');
-const csv = require('csv-parser');
-const { Readable } = require('stream');
 const dayjs = require('dayjs');
-const utc = require('dayjs/plugin/utc');
-const zlib = require('zlib'),
+const utc = require('dayjs/plugin/utc'),
+
 
   /* eslint-disable no-process-env */
 
@@ -18,7 +17,6 @@ const zlib = require('zlib'),
   ldAccessToken = process.env.API_KEY,
   baseUrl = process.env.LD_BASE_URL;
 
-let allManifestUrls = [];
 
 dayjs.extend(utc);
 
@@ -38,10 +36,8 @@ function setLastUpdateDateFromSegment (segmentData) {
 
   const validRule = segmentData.rules.find((rule) => {
     if (rule?.description) {
-      // Directly use the description without 'at' replacement
-      const parsedDate = dayjs(rule.description).utc(); // Parse as a Day.js object
+      const parsedDate = dayjs(rule.description).utc();
 
-      // Return true if the parsed date is valid
       return parsedDate.isValid();
     }
 
@@ -153,9 +149,10 @@ function streamToString (stream) {
  *
  * @param {Date|string} day - The day to process, provided as a Date object or ISO date string.
  * @param {Date} lastUpdatedDate - The last update date as a Date object.
+ * @param {Array.<string>}allManifestUrls - Contain all Manifest Urls
  * @returns {Promise<void>} A promise that resolves when the processing is complete.
  */
-async function processDailyManifests (day, lastUpdatedDate) {
+async function processDailyManifests (day, lastUpdatedDate, allManifestUrls) {
   // Convert the input day to a Date object if it's a string
   const date = dayjs(day),
 
@@ -189,7 +186,7 @@ async function processDailyManifests (day, lastUpdatedDate) {
 
 
     if (response.isError) {
-      throw new Error(`Error occurred while fetching objects: ${response.errorMessage}`);
+      return Promise.reject(response.isError);
     }
     // Filter the list of objects to include only manifest files that are updated
     filteredContents = _.filter(response.data.Contents, (item) => {
@@ -211,10 +208,14 @@ async function processDailyManifests (day, lastUpdatedDate) {
 
     // Add collected URLs to the global array
     allManifestUrls.push(...manifest_url);
+
+    return allManifestUrls;
   }
   catch (error) {
     // Send error message if list retrieval fails
     await sendSlackMessage(`<@nimish.agrawal>Error processing List at ${folderPath}: ${error}`);
+
+    return Promise.reject(error);
   }
 }
 
@@ -253,13 +254,14 @@ async function processLdRequestWorkflow () {
       lastFilePath,
       manifestPromises,
       // Array to store promises for each day's processing
-      dayProcessingPromises = [];
+      dayProcessingPromises = [],
+      allManifestUrls = [];
 
     // Extracting All the URN of data file from Manifest  from Last updated date to current date
     for (const day of daysToProcess) {
       // For each day, push a promise returned by processDailyManifests(day) to the dayProcessingPromises array
       // This ensures all days are processed concurrently
-      dayProcessingPromises.push(processDailyManifests(day, lastUpdatedDate));
+      dayProcessingPromises.push(processDailyManifests(day, lastUpdatedDate, allManifestUrls));
     }
     // Wait for all promises to resolve
     await Promise.all(dayProcessingPromises);
@@ -284,7 +286,7 @@ async function processLdRequestWorkflow () {
       catch (error) {
         await sendSlackMessage(`<@nimish.agrawal>Error processing manifest at ${manifestPath}: ${error}`);
 
-        throw error;
+        return Promise.reject(error);
       }
     });
     // Create an array of promises where each promise handles the extraction of file URLs from a manifest
@@ -297,26 +299,19 @@ async function processLdRequestWorkflow () {
           filePath = filePath.replace(`s3://${BUCKET_NAME}/`, '');
 
           // Fetch the object from S3
-          const data = await GetObject(filePath),
+          const data = await GetObject(filePath);
 
-            // Create a gunzip stream to decompress the data
-            gunzip = zlib.createGunzip(),
+          // Check if the object exists and data.Body is defined
+          if (!data || !data.Body) {
+            await sendSlackMessage(`<@nimish.agrawal> ${filePath} is empty or missing. Skipping...`);
 
-            // Create a readable stream from the object body and pipe it through the gunzip
-            csvStream = Readable.from(data.Body).pipe(gunzip),
-
-            parsedData = [],
-            // Create a CSV parser to handle the incoming data
-            parser = csv({ headers: false });
-
-          // Process each row from the CSV stream and extracting domains
-          for await (const row of csvStream.pipe(parser)) {
-            const domain = row[0];
-
-            parsedData.push(domain);
+            return [];
           }
+          // Unzip and parse the CSV data, extracting the first column (domains)
+          // No headers, extract column 0
+          let parsedDomains = await unzipAndParseCSV(data.Body, false, 0);
 
-          return parsedData;
+          return parsedDomains;
         }
         catch (error) {
           if (error.name === 'NoSuchKey') {
@@ -344,10 +339,12 @@ async function processLdRequestWorkflow () {
     // No Need to update if there are no domain
     if (domains.length === 0) {
       let formattedLastUpdate = dayjs(lastUpdatedDate)
-        .utc()
-        .format('MMMM D, YYYY, h:mm:ss A [UTC]');
+          .utc()
+          .format('MMMM D, YYYY, h:mm:ss A [UTC]'),
 
-      await sendSlackMessage(`domains is empty, last updated on ${formattedLastUpdate}`);
+        successMessage = formatSuccessMessage(formattedLastUpdate, 0);
+
+      await sendSlackMessage(successMessage);
 
       return;
     }
@@ -362,13 +359,7 @@ async function processLdRequestWorkflow () {
         numericPart = _.get(parts, '[7]');
 
       if (numericPart && numericPart.length === 10) {
-        const year = _.get(parts, '[4]'),
-          month = _.get(parts, '[5]'),
-          day = _.get(parts, '[6]'),
-          hour = numericPart.substring(0, 2),
-          minute = numericPart.substring(2, 4),
-          second = numericPart.substring(4, 6),
-          dateTimeString = `${year}-${month}-${day}T${hour}:${minute}:${second}Z`,
+        const dateTimeString = formatDateTimeString(parts, numericPart),
 
           // Parse and format using Day.js
           formattedDate = dayjs(dateTimeString)
@@ -385,7 +376,7 @@ async function processLdRequestWorkflow () {
   catch (error) {
     await sendSlackMessage(`<@nimish.agrawal>Error processing data From S3: ${error}`);
 
-    return;
+    return Promise.reject(error);
   }
 
   try {
@@ -458,32 +449,7 @@ async function processLdRequestWorkflow () {
       }
       const numberOfDomains = domains.length,
 
-        successMessage = {
-          'text': 'Domain Update Notification',
-          'blocks': [
-            {
-              'type': 'section',
-              'text': {
-                'type': 'mrkdwn',
-                'text': '*Successfully updated the domains in LaunchDarkly:*'
-              }
-            },
-            {
-              'type': 'section',
-              'block_id': 'section123',
-              'fields': [
-                {
-                  'type': 'mrkdwn',
-                  'text': `*Total number of domains added:* ${numberOfDomains}`
-                },
-                {
-                  'type': 'mrkdwn',
-                  'text': `*Last updated:* ${lastUpdatedDate}`
-                }
-              ]
-            }
-          ]
-        };
+        successMessage = formatSuccessMessage(lastUpdatedDate, numberOfDomains);
 
       if (resp.data.ok) {
         await sendSlackMessage(successMessage);
@@ -492,6 +458,8 @@ async function processLdRequestWorkflow () {
   }
   catch (error) {
     sendSlackMessage(`<@nimish.agrawal>Error Patching dates: ${error}`);
+
+    return Promise.reject(error);
   }
 }
 
