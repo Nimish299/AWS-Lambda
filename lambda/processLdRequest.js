@@ -1,10 +1,13 @@
 const { fetchDataFromApi, sendDataToApi } = require('../services/ldService/index.js');
 const { ListObjects, GetObject } = require('../services/s3Service/index.js');
 const { sendSlackMessage } = require('../services/slackService/index.js');
-const { formatSuccessMessage, formatDateTimeString, unzipAndParseCSV } = require('../services/utilsService');
+const { formatDateTimeString,
+  formatSuccessMessage, unzipAndParseCSV,
+  setLastUpdateDateFromSegment, streamToString,
+  getDatesFromLastUpdateToCurrent, sortS3ManifestUrlsByTimestamp } =
+   require('../services/utilsService');
 const _ = require('lodash');
-const dayjs = require('dayjs');
-const utc = require('dayjs/plugin/utc'),
+const dayjs = require('dayjs'),
 
 
   /* eslint-disable no-process-env */
@@ -17,129 +20,6 @@ const utc = require('dayjs/plugin/utc'),
   ldAccessToken = process.env.API_KEY,
   baseUrl = process.env.LD_BASE_URL;
 
-
-dayjs.extend(utc);
-
-/**
- * Updates the last update date based on the rule descriptions in `segmentData`.
- *
- * The function searches through the `description` field of each rule in `segmentData`.
- * It tries to parse the description as a date. If a valid date is found, it is used as the last update date.
- * If no valid date is found in any rules, a fallback date is used.
- *
- * @param {Object} segmentData - The segment data containing rules with descriptions.
- *
- * @returns {Date} - The formatted date found in the description, or a fallback date if none is valid.
- */
-function setLastUpdateDateFromSegment (segmentData) {
-  let lastUpdateDate;
-
-  const validRule = segmentData.rules.find((rule) => {
-    if (rule?.description) {
-      const parsedDate = dayjs(rule.description).utc();
-
-      return parsedDate.isValid();
-    }
-
-    return false;
-  });
-
-  if (validRule) {
-    lastUpdateDate = dayjs(validRule.description).utc().toDate();
-  }
-  else {
-    const fallbackDate = process.env.FALLBACK_DATE || '2024-01-01';
-
-    lastUpdateDate = new Date(fallbackDate);
-    let formatlastdate = new Date(lastUpdateDate).toDateString();
-
-    // eslint-disable-next-line max-len
-    sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${formatlastdate}`);
-  }
-
-  return lastUpdateDate;
-}
-
-/**
- * Sorts an array of S3 manifest URLs based on the embedded date and time in the path.
- * The manifest URLs are assumed to have the format:
- * 'pqa_trials/YYYY/MM/DD/HHMMSS0000/manifest'
- *
- * @param {string[]} manifestUrls - The array of manifest URLs to be sorted.
- * @returns {string[]} The sorted array of manifest URLs.
- */
-function sortS3ManifestUrlsByTimestamp (manifestUrls) {
-  if (!Array.isArray(manifestUrls) || manifestUrls.length === 0) {
-    // Return an empty array if input is invalid or empty
-    return [];
-  }
-
-  // Sort the manifest URLs based on their extracted timestamp
-  return _.sortBy(manifestUrls, (url) => {
-    const [, year, month, day, time] = url.split('/');
-
-    return `${year}${month}${day}${time}`;
-  });
-}
-
-
-/**
- * Fetches all dates from the last update date to the current date.
- *
- * This function generates an array of date objects starting from the
- * `lastUpdatedDate` up to the current date.
- *
- * @param {Date} lastUpdatedDate - The last update date as a Date object.
- * @returns {Promise<Date[]>} - A promise that resolves to an array of Date objects representing each day
- * from the `lastUpdatedDate` to the current date (inclusive).
- */
-function getDatesFromLastUpdateToCurrent (lastUpdatedDate) {
-  const currentDate = new Date(),
-    results = [];
-
-  // lastUpdatedDate is set by setDescription, which ensures a valid date or fallback
-  // so no need to check tempDate
-  let currentIteratingDate = new Date(lastUpdatedDate);
-
-  // Normalize currentDate to the start of the current day (00:00:00)
-  currentIteratingDate.setUTCHours(0, 0, 0, 0); // Start at midnight of the last update date
-  currentDate.setUTCHours(0, 0, 0, 0); // Start at midnight of the current date
-
-  // Iterate through each day from lastUpdatedDate to the current date (inclusive)
-  // eslint-disable-next-line no-unmodified-loop-condition
-  while (currentIteratingDate <= currentDate) {
-    results.push(new Date(currentIteratingDate));
-    currentIteratingDate.setUTCDate(currentIteratingDate.getUTCDate() + 1);
-  }
-
-  return results;
-}
-
-
-/**
- * Convert a stream to a string.
- *
- * This function reads data from a stream, collects chunks of data, and concatenates them into a single string.
- *
- * @param {stream.Readable} stream - The stream to be converted to a string.
- * @returns {Promise<string>} - A promise that resolves with the string representation of the stream.
- */
-function streamToString (stream) {
-  const chunks = [];
-
-  return new Promise((resolve, reject) => {
-    // Collect data chunks from the stream
-    stream.on('data', (chunk) => { return chunks.push(chunk); });
-
-    // Resolve the promise with the concatenated string when the stream ends
-    stream.on('end', () => { return resolve(Buffer.concat(chunks).toString('utf-8')); });
-
-    // Reject the promise if an error occurs
-    stream.on('error', reject);
-  });
-}
-
-
 /**
  * Processes the manifest files for a given day.
  *
@@ -149,10 +29,9 @@ function streamToString (stream) {
  *
  * @param {Date|string} day - The day to process, provided as a Date object or ISO date string.
  * @param {Date} lastUpdatedDate - The last update date as a Date object.
- * @param {Array.<string>}allManifestUrls - Contain all Manifest Urls
  * @returns {Promise<void>} A promise that resolves when the processing is complete.
  */
-async function processDailyManifests (day, lastUpdatedDate, allManifestUrls) {
+async function processDailyManifests (day, lastUpdatedDate) {
   // Convert the input day to a Date object if it's a string
   const date = dayjs(day),
     // Extracting Dates and preparing folder path...
@@ -206,10 +85,7 @@ async function processDailyManifests (day, lastUpdatedDate, allManifestUrls) {
       manifest_url.push(item.Key);
     });
 
-    // Add collected URLs to the global array
-    allManifestUrls.push(...manifest_url);
-
-    return allManifestUrls;
+    return manifest_url;
   }
   catch (error) {
     // Send error message if list retrieval fails
@@ -259,10 +135,11 @@ async function processLdRequestWorkflow () {
     for (const day of daysToProcess) {
       // For each day, push a promise returned by processDailyManifests(day) to the dayProcessingPromises array
       // This ensures all days are processed concurrently
-      dayProcessingPromises.push(processDailyManifests(day, lastUpdatedDate, allManifestUrls));
+      dayProcessingPromises.push(processDailyManifests(day, lastUpdatedDate));
     }
     // Wait for all promises to resolve
-    await Promise.all(dayProcessingPromises);
+    allManifestUrls = await Promise.all(dayProcessingPromises);
+    allManifestUrls = allManifestUrls.flat();
 
     // `allManifestUrls` now contains all manifest URLs collected from all days
     // Sort the URLs in ascending order
@@ -301,7 +178,7 @@ async function processLdRequestWorkflow () {
 
           // Check if the object exists and data.Body is defined
           if (!data || !data.Body) {
-            await sendSlackMessage(`<@trial-engineers > ${filePath} is empty or missing. Skipping...`);
+            await sendSlackMessage(`${filePath} is empty or missing. Skipping...`);
 
             return [];
           }

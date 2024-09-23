@@ -10,13 +10,14 @@ This pipeline automates the process of updating email domains in LaunchDarkly (L
 
 
 
-                                          ------ s3services -----> S3
+                                          ------ s3Services -----> index
                                           |
-      lambda/handler.handler -----> processLdRequest
+      lambda/handler.handler -----> processLdRequest --- utilsServices  --->index
                                           |
-                                           ------ ldservices -----> LD
+                                           ------ ldServices -----> index
 
 * Handler: The entry point (Lambda function) that triggers the pipeline.
 * processLdRequest: The main workflow that coordinates fetching data from S3 and updating LD.
-* s3services: Service functions that interact with AWS S3 to list and retrieve domain data.
-* ldservices: Service functions that interact with LaunchDarkly to fetch and update segment rules.
+* s3Services: Service functions that interact with AWS S3 to list and retrieve domain data.
+* utilsServices: Service functions handle common tasks
+* ldServices: Service functions that interact with LaunchDarkly to fetch and update segment rules.
