@@ -64,7 +64,7 @@ async function processDailyManifests (day, lastUpdatedDate) {
     response = await ListObjects(folderPath);
 
 
-    if (response.isError) {
+    if (response?.isError) {
       return Promise.reject(response.isError);
     }
     // Filter the list of objects to include only manifest files that are updated
@@ -326,7 +326,7 @@ async function processLdRequestWorkflow () {
 
         successMessage = await formatSuccessMessage(lastUpdatedDate, numberOfDomains);
 
-      if (resp.data.ok) {
+      if (resp?.data?.ok) {
         await sendSlackMessage(successMessage);
       }
     }

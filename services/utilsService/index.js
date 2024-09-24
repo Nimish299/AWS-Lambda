@@ -120,7 +120,7 @@ async function unzipAndParseCSV (gzippedData, hasHeaders = false, columnIndex = 
 function setLastUpdateDateFromSegment (segmentData) {
   let lastUpdateDate;
 
-  const validRule = segmentData.rules.find((rule) => {
+  const validRule = segmentData?.rules?.find((rule) => {
     if (rule?.description) {
       const parsedDate = dayjs(rule.description).utc();
 
