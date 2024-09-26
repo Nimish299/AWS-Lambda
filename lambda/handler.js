@@ -1,4 +1,6 @@
 const { processLdRequestWorkflow } = require('./processLdRequest.js'),
+ { sendSlackMessage } = require('../services/slackService.js'),
+
 
   /**
    * Lambda function handler that executes the LaunchDarkly request processing workflow.
@@ -13,6 +15,8 @@ const { processLdRequestWorkflow } = require('./processLdRequest.js'),
       return { statusCode: 200, body: JSON.stringify('Success') };
     }
     catch (error) {
+      await sendSlackMessage(`Status: Failed - 500 Internal Server Error: ${error.message}`);
+
       return {
         statusCode: 500,
         body: JSON.stringify({ message: 'Internal Server Error' })
