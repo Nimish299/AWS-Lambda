@@ -15,7 +15,6 @@ const { S3Client, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/c
  * @throws {Error} - Throws an error if the S3 request fails.
  */
 async function ListObjects (folderPath) {
-  let result;
 
   try {
     const command1 = new ListObjectsV2Command({
@@ -25,20 +24,19 @@ async function ListObjects (folderPath) {
 
       response = await s3.send(command1);
 
-    result = {
+    return {
       isError: false,
       data: response
     };
   }
   catch (error) {
     console.error('Error fetching objects:', error);
-    result = {
+    return {
       isError: true,
       errorMessage: error.message
     };
   }
 
-  return result;
 }
 
 

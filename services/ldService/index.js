@@ -12,7 +12,7 @@
  */
 const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
   try {
-    let resp = await fetch(`${API}`,
+    let resp = await fetch(API,
       {
         method: 'GET',
         headers: {
@@ -57,7 +57,7 @@ const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
 
 sendDataToApi = async (API, ldAccessToken, patchOperation, sendSlackMessage) => {
   try {
-    let resp = await fetch(`${API}`,
+    let resp = await fetch(API,
       {
         method: 'PATCH',
         headers: {

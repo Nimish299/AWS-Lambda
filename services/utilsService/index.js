@@ -57,9 +57,9 @@ function formatDateTimeString (parts, numericPart) {
     month = _.get(parts, '[5]'),
     day = _.get(parts, '[6]'),
 
-    hour = numericPart.substring(0, 2),
-    minute = numericPart.substring(2, 4),
-    second = numericPart.substring(4, 6);
+    hour = numericPart?.substring(0, 2),
+    minute = numericPart?.substring(2, 4),
+    second = numericPart?.substring(4, 6);
 
   // Return the formatted date-time string in ISO 8601 format
   return `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
@@ -77,10 +77,10 @@ function formatDateTimeString (parts, numericPart) {
 async function unzipAndParseCSV (gzippedData, hasHeaders = false, columnIndex = 0) {
   try {
     // Create a gunzip stream to decompress the gzipped data
-    const gunzip = zlib.createGunzip(),
+    const gunzip = zlib?.createGunzip(),
 
       // Create a readable stream from the gzipped data and pipe it through the gunzip
-      csvStream = Readable.from(gzippedData).pipe(gunzip),
+      csvStream = Readable?.from(gzippedData)?.pipe(gunzip),
 
       // Initialize an array to store parsed data
       parsedData = [],
@@ -88,11 +88,11 @@ async function unzipAndParseCSV (gzippedData, hasHeaders = false, columnIndex = 
       // Create a CSV parser and process each row
       parser = csv({ headers: hasHeaders });
 
-    for await (const row of csvStream.pipe(parser)) {
+    for await (const row of csvStream?.pipe(parser)) {
       // Extract the value from the specified column index
       const columnValue = row[columnIndex];
 
-      parsedData.push(columnValue);
+      parsedData?.push(columnValue);
     }
 
     // Return the parsed data
@@ -122,16 +122,16 @@ function setLastUpdateDateFromSegment (segmentData) {
 
   const validRule = segmentData?.rules?.find((rule) => {
     if (rule?.description) {
-      const parsedDate = dayjs(rule.description).utc();
+      const parsedDate = dayjs(rule?.description).utc();
 
-      return parsedDate.isValid();
+      return parsedDate?.isValid();
     }
 
     return false;
   });
 
   if (validRule) {
-    lastUpdateDate = dayjs(validRule.description).utc().toDate();
+    lastUpdateDate = dayjs(validRule?.description)?.utc()?.toDate();
   }
   else {
   /* eslint-disable no-process-env */
@@ -139,7 +139,7 @@ function setLastUpdateDateFromSegment (segmentData) {
     const fallbackDate = process.env.FALLBACK_DATE || '2024-01-01';
 
     lastUpdateDate = new Date(fallbackDate);
-    let formatlastdate = new Date(lastUpdateDate).toDateString();
+    let formatlastdate = new Date(lastUpdateDate)?.toDateString();
 
     // eslint-disable-next-line max-len
     sendSlackMessage(`Fallback to default date as no valid date found in rules. Using fallback date: ${formatlastdate}`);
@@ -197,7 +197,7 @@ function getDatesFromLastUpdateToCurrent (lastUpdatedDate) {
   // eslint-disable-next-line no-unmodified-loop-condition
   while (currentIteratingDate <= currentDate) {
     results.push(new Date(currentIteratingDate));
-    currentIteratingDate.setUTCDate(currentIteratingDate.getUTCDate() + 1);
+    currentIteratingDate?.setUTCDate(currentIteratingDate?.getUTCDate() + 1);
   }
 
   return results;

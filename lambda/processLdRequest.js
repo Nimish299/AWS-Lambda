@@ -1,11 +1,7 @@
-const { fetchDataFromApi, sendDataToApi } = require('../services/ldService/index.js');
-const { ListObjects, GetObject } = require('../services/s3Service/index.js');
+const LDService= require('../services/ldService/index.js');
+const s3Service  = require('../services/s3Service/index.js');
 const { sendSlackMessage } = require('../services/slackService/index.js');
-const { formatDateTimeString,
-  formatSuccessMessage, unzipAndParseCSV,
-  setLastUpdateDateFromSegment, streamToString,
-  getDatesFromLastUpdateToCurrent, sortS3ManifestUrlsByTimestamp } =
-   require('../services/utilsService');
+const utilsService =  require('../services/utilsService');
 const _ = require('lodash');
 const dayjs = require('dayjs'),
 
@@ -35,11 +31,11 @@ async function processDailyManifests (day, lastUpdatedDate) {
   // Convert the input day to a Date object if it's a string
   const date = dayjs(day),
     // Extracting Dates and preparing folder path...
-    dayDate = date.utc().format('YYYY-MM-DD'),
-    lastDate = dayjs(lastUpdatedDate).utc().format('YYYY-MM-DD'),
-    year = date.utc().format('YYYY'),
-    month = date.utc().format('MM'),
-    dateStr = date.utc().format('DD'),
+    dayDate = date?.utc()?.format('YYYY-MM-DD'),
+    lastDate = dayjs(lastUpdatedDate)?.utc()?.format('YYYY-MM-DD'),
+    year = date?.utc()?.format('YYYY'),
+    month = date?.utc()?.format('MM'),
+    dateStr = date?.utc()?.format('DD');
     folderPath = `pqa_trials/${year}/${month}/${dateStr}/`;
 
   let lastUpdatedTime,
@@ -51,7 +47,7 @@ async function processDailyManifests (day, lastUpdatedDate) {
   * Adding a condition to start from the next time after the last update.
   */
   if (dayDate === lastDate) {
-    lastUpdatedTime = dayjs(lastUpdatedDate).utc().format('HHmmss') + '0000';
+    lastUpdatedTime = dayjs(lastUpdatedDate)?.utc()?.format('HHmmss') + '0000';
   }
   else {
     lastUpdatedTime = '0000000000';
@@ -61,17 +57,19 @@ async function processDailyManifests (day, lastUpdatedDate) {
     let response, filteredContents;
 
     // Retrieve the list of objects from S3
-    response = await ListObjects(folderPath);
+    response = await s3Service.ListObjects(folderPath);
 
 
     if (response?.isError) {
       return Promise.reject(response.isError);
     }
-    // Filter the list of objects to include only manifest files that are updated
-    filteredContents = _.filter(response.data.Contents, (item) => {
-      const parts = item.Key.split('/');
-
-      if (parts.length > 4 && parts[4] && parts[5] === 'manifest') {
+    // Filter the list of objects to include only manifest files that have been updated
+    // The function returns true for objects where the numeric part is greater than `lastUpdatedTime`,
+    // indicating they have been updated since the last check.
+    filteredContents = _.filter(response?.data?.Contents, (item) => {
+      const parts = item?.Key?.split('/');
+      //Extract All the manifest files whos numeric part is greater than lastupdate  time
+      if (parts?.length > 4 && parts[4] && parts[5] === 'manifest') {
         const numericPart = parts[4];
 
         return numericPart > lastUpdatedTime;
@@ -80,7 +78,7 @@ async function processDailyManifests (day, lastUpdatedDate) {
       return false;
     });
 
-    // Collect the URLs of the filtered manifest files
+    // Extract manifest files whose numeric part is greater than lastUpdatedTime
     filteredContents.forEach((item) => {
       manifest_url.push(item.Key);
     });
@@ -108,22 +106,22 @@ async function processLdRequestWorkflow () {
   const API = `${baseUrl}/segments/${projectKey}/${environmentKey}/${segmentKey}`;
 
   // Fetching Data from LD
-  let segmentData = await fetchDataFromApi(API, ldAccessToken, sendSlackMessage),
+  let segmentData = await LDService.fetchDataFromApi(API, ldAccessToken, sendSlackMessage),
     domains = [],
     lastUpdatedDate;
 
-  if (segmentData.isError) {
+  if (segmentData?.isError) {
     return Promise.reject(segmentData.errorMessage);
   }
-  segmentData = segmentData.data;
+  segmentData = segmentData?.data;
 
   // Extract the last updated date from the description (i.e., rule name)
   // lastUpdatedDate is set by setDescription, which ensures a valid date or fallback
-  lastUpdatedDate = setLastUpdateDateFromSegment(segmentData);
+  lastUpdatedDate = utilsService.setLastUpdateDateFromSegment(segmentData);
 
   try {
     // Extract all days between the last updated date and today
-    const daysToProcess = getDatesFromLastUpdateToCurrent(lastUpdatedDate);
+    const daysToProcess = utilsService.getDatesFromLastUpdateToCurrent(lastUpdatedDate);
     let allFileUrls = [],
       lastFilePath,
       manifestPromises,
@@ -144,15 +142,15 @@ async function processLdRequestWorkflow () {
     // `allManifestUrls` now contains all manifest URLs collected from all days
     // Sort the URLs in ascending order
     // Need latest  Manifest URL  to update last update date
-    allManifestUrls = sortS3ManifestUrlsByTimestamp(allManifestUrls);
+    allManifestUrls = utilsService.sortS3ManifestUrlsByTimestamp(allManifestUrls);
 
     // Extract All File url using Manifest File
     manifestPromises = allManifestUrls.map(async (manifestPath) => {
       try {
         // Fetch the manifest file from the given path
-        const data = await GetObject(manifestPath),
+        const data = await s3Service.GetObject(manifestPath),
           // Convert the readable stream  to a string
-          manifestContent = await streamToString(data.Body),
+          manifestContent = await utilsService.streamToString(data.Body),
           manifestJson = JSON.parse(manifestContent),
           File_urls = manifestJson.entries.map((entry) => { return entry.url; });
 
@@ -171,10 +169,10 @@ async function processLdRequestWorkflow () {
       let domainPromises = allFileUrls.map(async (filePath) => {
         try {
           // Remove the S3 bucket prefix from the file path
-          filePath = filePath.replace(`s3://${BUCKET_NAME}/`, '');
+          filePath = filePath?.replace(`s3://${BUCKET_NAME}/`, '');
 
           // Fetch the object from S3
-          const data = await GetObject(filePath);
+          const data = await s3Service.GetObject(filePath);
 
           // Check if the object exists and data.Body is defined
           if (!data || !data.Body) {
@@ -184,12 +182,12 @@ async function processLdRequestWorkflow () {
           }
           // Unzip and parse the CSV data, extracting the first column (domains)
           // No headers, extract column 0
-          let parsedDomains = await unzipAndParseCSV(data.Body, false, 0);
+          let parsedDomains = await utilsService.unzipAndParseCSV(data.Body, false, 0);
 
           return parsedDomains;
         }
         catch (error) {
-          if (error.name === 'NoSuchKey') {
+          if (error?.name === 'NoSuchKey') {
             await sendSlackMessage(`<@trial-engineers >${filePath}, skipping... `);
 
             return [];
@@ -214,10 +212,10 @@ async function processLdRequestWorkflow () {
     // No Need to update if there are no domain
     if (domains.length === 0) {
       let formattedLastUpdate = dayjs(lastUpdatedDate)
-          .utc()
-          .format('MMMM D, YYYY, h:mm:ss A [UTC]'),
+          ?.utc()
+          ?.format('MMMM D, YYYY, h:mm:ss A [UTC]'),
 
-        successMessage = await formatSuccessMessage(formattedLastUpdate, 0);
+        successMessage = await utilsService.formatSuccessMessage(formattedLastUpdate, 0);
 
       await sendSlackMessage(successMessage);
 
@@ -230,16 +228,16 @@ async function processLdRequestWorkflow () {
 
     if (lastFilePath) {
       // Take the Time part from URL using lodash _.get for safe array access
-      const parts = lastFilePath.split('/'),
+      const parts = lastFilePath?.split('/'),
         numericPart = _.get(parts, '[7]');
 
-      if (numericPart && numericPart.length === 10) {
-        const dateTimeString = formatDateTimeString(parts, numericPart),
+      if (numericPart && numericPart?.length === 10) {
+        const dateTimeString = utilsService.formatDateTimeString(parts, numericPart),
 
           // Parse and format using Day.js
           formattedDate = dayjs(dateTimeString)
-            .utc()
-            .format('MMMM D, YYYY, h:mm:ss A [UTC]');
+            ?.utc()
+            ?.format('MMMM D, YYYY, h:mm:ss A [UTC]');
 
         lastUpdatedDate = formattedDate;
       }
@@ -256,14 +254,14 @@ async function processLdRequestWorkflow () {
 
   try {
     // Just to make sure it run if we get any new domain
-    if (domains.length > 0) {
+    if (domains?.length > 0) {
       let patchOperation = [],
         updatedEmailDomains = [...domains],
         initialOperationType = 'add',
         resp;
 
       // Check if there is some rule exist or not
-      if (segmentData.rules && segmentData.rules.length > 0) {
+      if (segmentData?.rules && segmentData.rules.length > 0) {
         const existingEmailDomains = segmentData.rules[0]?.clauses[0]?.values || [];
 
         // Merge old data with new data as we will replace First rule till limit
@@ -273,8 +271,8 @@ async function processLdRequestWorkflow () {
       // Check if the number of updated email domains exceeds the limit
       if (updatedEmailDomains.length > Limit) {
         // Divide the email domains into chunks of size `Limit`
-        for (let count = 0; count < updatedEmailDomains.length; count += Limit) {
-          let emailDomainsChunk = updatedEmailDomains.slice(count, count + Limit);
+        for (let count = 0; count < updatedEmailDomains?.length; count += Limit) {
+          let emailDomainsChunk = updatedEmailDomains?.slice(count, count + Limit);
 
           // Json to be send on patchOperation
           patchOperation.push({
@@ -318,13 +316,13 @@ async function processLdRequestWorkflow () {
         });
       }
       // Send the patch operation to the API and log the response
-      resp = await sendDataToApi(API, ldAccessToken, patchOperation, sendSlackMessage);
-      if (resp.isError) {
+      resp = await LDService.sendDataToApi(API, ldAccessToken, patchOperation, sendSlackMessage);
+      if (resp?.isError) {
         return;
       }
       const numberOfDomains = domains.length,
 
-        successMessage = await formatSuccessMessage(lastUpdatedDate, numberOfDomains);
+        successMessage = await utilsService.formatSuccessMessage(lastUpdatedDate, numberOfDomains);
 
       if (resp?.data?.ok) {
         await sendSlackMessage(successMessage);
