@@ -15,7 +15,7 @@ dayjs.extend(utc);
  * @param {number} numberOfDomains - The total number of domains added.
  * @returns {Object} - A Slack message object containing the success message.
  */
-function formatSuccessMessage (lastUpdatedDate, numberOfDomains) {
+function formatMessage (status,lastUpdatedDate, numberOfDomains) {
   return {
     'text': 'Domain Update Summary',
     'blocks': [
@@ -23,7 +23,7 @@ function formatSuccessMessage (lastUpdatedDate, numberOfDomains) {
         'type': 'section',
         'text': {
           'type': 'mrkdwn',
-          'text': '*LaunchDarkly Domain Update - Success*'
+          'text': `*LaunchDarkly Domain Update - ${status}*`
         }
       },
       {
@@ -227,7 +227,7 @@ function streamToString (stream) {
   });
 }
 module.exports = { formatDateTimeString,
-  formatSuccessMessage,
+  formatMessage,
   unzipAndParseCSV,
   setLastUpdateDateFromSegment,
   streamToString,

@@ -1,7 +1,7 @@
-const LDService= require('../services/ldService/index.js');
-const s3Service  = require('../services/s3Service/index.js');
+const LDService = require('../services/ldService/index.js');
+const s3Service = require('../services/s3Service/index.js');
 const { sendSlackMessage } = require('../services/slackService/index.js');
-const utilsService =  require('../services/utilsService');
+const utilsService = require('../services/utilsService');
 const _ = require('lodash');
 const dayjs = require('dayjs'),
 
@@ -27,7 +27,7 @@ const dayjs = require('dayjs'),
  * @param {Date} lastUpdatedDate - The last update date as a Date object.
  * @returns {Promise<void>} A promise that resolves when the processing is complete.
  */
-async function processDailyManifests (day, lastUpdatedDate) {
+async function processDailyManifests(day, lastUpdatedDate) {
   // Convert the input day to a Date object if it's a string
   const date = dayjs(day),
     // Extracting Dates and preparing folder path...
@@ -36,7 +36,7 @@ async function processDailyManifests (day, lastUpdatedDate) {
     year = date?.utc()?.format('YYYY'),
     month = date?.utc()?.format('MM'),
     dateStr = date?.utc()?.format('DD');
-    folderPath = `pqa_trials/${year}/${month}/${dateStr}/`;
+  folderPath = `pqa_trials/${year}/${month}/${dateStr}/`;
 
   let lastUpdatedTime,
     manifest_url = [];
@@ -92,6 +92,81 @@ async function processDailyManifests (day, lastUpdatedDate) {
     return Promise.reject(error);
   }
 }
+/**
+ * Creates an array of promises for fetching file URLs from specified manifest files.
+ *
+ * @param {string[]} allManifestUrls - An array of S3 paths to manifest files.
+ * @returns {Promise<string[]>[]} An array of promises that resolve to arrays of file URLs extracted from each manifest.
+ */
+async function createManifestPromises(allManifestUrls) {
+  const manifestPromises = allManifestUrls.map(async (manifestPath) => {
+    try {
+      // Fetch the manifest file from the given path
+      const data = await s3Service.GetObject(manifestPath);
+
+      // Convert the readable stream to a string
+      const manifestContent = await utilsService.streamToString(data.Body);
+
+      // Parse the JSON content
+      const manifestJson = JSON.parse(manifestContent);
+
+      // Extract file URLs from the manifest entries
+      const fileUrls = manifestJson.entries.map((entry) => entry.url);
+
+      return fileUrls;
+    } catch (error) {
+      // Send an error message to Slack if there's an error
+      await sendSlackMessage(`<@trial-engineers> Error processing manifest at ${manifestPath}: ${error}`);
+
+      // Reject the promise
+      return Promise.reject(error);
+    }
+  });
+
+  // Return the array of promises
+  return manifestPromises;
+}
+/**
+ * Creates an array of promises for extracting domains from CSV files stored in S3.
+ *
+ * @param {Array<string>} allFileUrls - An array of file paths pointing to the CSV files in S3.
+ * @returns {Promise<Array<string[]>>} A promise that resolves to an array of arrays, where each inner array contains parsed domain strings from a CSV file.
+ * 
+ */
+async function createDomainPromises(allFileUrls) {
+  const domainPromises = allFileUrls.map(async (filePath) => {
+    try {
+      // Remove the S3 bucket prefix from the file path
+      filePath = filePath?.replace(`s3://${BUCKET_NAME}/`, '');
+
+      // Fetch the object from S3
+      const data = await s3Service.GetObject(filePath);
+
+      // Check if the object exists and data.Body is defined
+      if (!data || !data.Body) {
+        await sendSlackMessage(`${filePath} is empty or missing. Skipping...`);
+        return []; 
+      }
+
+      // Unzip and parse the CSV data, extracting the first column (domains)
+      // No headers, extract column 0
+      const parsedDomains = await utilsService.unzipAndParseCSV(data.Body, false, 0);
+      return parsedDomains; 
+    } catch (error) {
+      if (error?.name === 'NoSuchKey') {
+        await sendSlackMessage(`<@trial-engineers>${filePath}, skipping...`);
+        return [];
+      }
+      // Handle other errors if necessary, potentially logging or messaging
+      console.error(`Error processing ${filePath}: ${error.message}`);
+      return [];
+    }
+  });
+
+  // Return the array of promises
+  return domainPromises;
+}
+
 
 /**
  * Handles the workflow for processing a LaunchDarkly (LD) request.
@@ -101,12 +176,12 @@ async function processDailyManifests (day, lastUpdatedDate) {
  * - Updating LD with the processed data
  *
  */
-async function processLdRequestWorkflow () {
+async function processLdRequestWorkflow() {
   // Fetch Segment Data  using LD API
   const API = `${baseUrl}/segments/${projectKey}/${environmentKey}/${segmentKey}`;
 
   // Fetching Data from LD
-  let segmentData = await LDService.fetchDataFromApi(API, ldAccessToken, sendSlackMessage),
+  let segmentData = await LDService.fetchDataFromApi(API, ldAccessToken),
     domains = [],
     lastUpdatedDate;
 
@@ -127,7 +202,8 @@ async function processLdRequestWorkflow () {
       manifestPromises,
       // Array to store promises for each day's processing
       dayProcessingPromises = [],
-      allManifestUrls = [];
+      allManifestUrls = [],
+      domainPromises;
 
     // Extracting All the URN of data file from Manifest  from Last updated date to current date
     for (const day of daysToProcess) {
@@ -136,8 +212,7 @@ async function processLdRequestWorkflow () {
       dayProcessingPromises.push(processDailyManifests(day, lastUpdatedDate));
     }
     // Wait for all promises to resolve
-    allManifestUrls = await Promise.all(dayProcessingPromises);
-    allManifestUrls = allManifestUrls.flat();
+    allManifestUrls = (await Promise.all(dayProcessingPromises)).flat();
 
     // `allManifestUrls` now contains all manifest URLs collected from all days
     // Sort the URLs in ascending order
@@ -145,77 +220,25 @@ async function processLdRequestWorkflow () {
     allManifestUrls = utilsService.sortS3ManifestUrlsByTimestamp(allManifestUrls);
 
     // Extract All File url using Manifest File
-    manifestPromises = allManifestUrls.map(async (manifestPath) => {
-      try {
-        // Fetch the manifest file from the given path
-        const data = await s3Service.GetObject(manifestPath),
-          // Convert the readable stream  to a string
-          manifestContent = await utilsService.streamToString(data.Body),
-          manifestJson = JSON.parse(manifestContent),
-          File_urls = manifestJson.entries.map((entry) => { return entry.url; });
-
-        return File_urls;
-      }
-      catch (error) {
-        await sendSlackMessage(`<@trial-engineers >Error processing manifest at ${manifestPath}: ${error}`);
-
-        return Promise.reject(error);
-      }
-    });
+    manifestPromises = await createManifestPromises(allManifestUrls);
     // Create an array of promises where each promise handles the extraction of file URLs from a manifest
-    allFileUrls = await Promise.all(manifestPromises);
-    allFileUrls = allFileUrls.flat();
-    try {
-      let domainPromises = allFileUrls.map(async (filePath) => {
-        try {
-          // Remove the S3 bucket prefix from the file path
-          filePath = filePath?.replace(`s3://${BUCKET_NAME}/`, '');
+    allFileUrls = (await Promise.all(manifestPromises)).flat();
 
-          // Fetch the object from S3
-          const data = await s3Service.GetObject(filePath);
+    // Call the function to create domain promises
+    domainPromises = await createDomainPromises(allFileUrls);
 
-          // Check if the object exists and data.Body is defined
-          if (!data || !data.Body) {
-            await sendSlackMessage(`${filePath} is empty or missing. Skipping...`);
+    // Create an array of domains from the resolved promises
+    domains = (await Promise.all(domainPromises)).flat();
 
-            return [];
-          }
-          // Unzip and parse the CSV data, extracting the first column (domains)
-          // No headers, extract column 0
-          let parsedDomains = await utilsService.unzipAndParseCSV(data.Body, false, 0);
-
-          return parsedDomains;
-        }
-        catch (error) {
-          if (error?.name === 'NoSuchKey') {
-            await sendSlackMessage(`<@trial-engineers >${filePath}, skipping... `);
-
-            return [];
-          }
-        }
-      });
-
-      // Create an array of promises where each promise handles the extraction of Domain from file URLs
-      domains = await Promise.all(domainPromises);
-      domains = domains.flat();
-      // Remove Duplicates and  null values
-      domains = _.uniq(_.compact(domains));
-    }
-    catch (error) {
-      await sendSlackMessage(`<@trial-engineers >Error processing file: ${error}`);
-
-      // Return an empty array in case of error
-      return []; // Return an empty array in case of error
-    }
-
-
+    // Remove duplicates and null values
+    domains = _.uniq(_.compact(domains));
     // No Need to update if there are no domain
     if (domains.length === 0) {
       let formattedLastUpdate = dayjs(lastUpdatedDate)
-          ?.utc()
-          ?.format('MMMM D, YYYY, h:mm:ss A [UTC]'),
+        ?.utc()
+        ?.format('MMMM D, YYYY, h:mm:ss A [UTC]'),
 
-        successMessage = await utilsService.formatSuccessMessage(formattedLastUpdate, 0);
+        successMessage = await utilsService.formatMessage("Success",formattedLastUpdate, 0);
 
       await sendSlackMessage(successMessage);
 
@@ -254,7 +277,8 @@ async function processLdRequestWorkflow () {
 
   try {
     // Just to make sure it run if we get any new domain
-    if (domains?.length > 0) {
+
+    if (domains.length > 0) {
       let patchOperation = [],
         updatedEmailDomains = [...domains],
         initialOperationType = 'add',
@@ -268,6 +292,7 @@ async function processLdRequestWorkflow () {
         updatedEmailDomains = [...existingEmailDomains, ...updatedEmailDomains];
         initialOperationType = 'replace';
       }
+
       // Check if the number of updated email domains exceeds the limit
       if (updatedEmailDomains.length > Limit) {
         // Divide the email domains into chunks of size `Limit`
@@ -315,14 +340,15 @@ async function processLdRequestWorkflow () {
           }
         });
       }
+
       // Send the patch operation to the API and log the response
-      resp = await LDService.sendDataToApi(API, ldAccessToken, patchOperation, sendSlackMessage);
+      resp = await LDService.sendDataToApi(API, ldAccessToken, patchOperation);
       if (resp?.isError) {
         return;
       }
       const numberOfDomains = domains.length,
 
-        successMessage = await utilsService.formatSuccessMessage(lastUpdatedDate, numberOfDomains);
+        successMessage = await utilsService.formatMessage("Success",lastUpdatedDate, numberOfDomains);
 
       if (resp?.data?.ok) {
         await sendSlackMessage(successMessage);

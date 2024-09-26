@@ -10,7 +10,7 @@
  * @param {Function} sendSlackMessage - Function to send error messages to Slack.
  * @returns {Promise<Object|null>} - The JSON data from the API if successful, or null if there was an error.
  */
-const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
+const fetchDataFromApi = async (API, ldAccessToken) => {
   try {
     let resp = await fetch(API,
       {
@@ -21,10 +21,11 @@ const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
       });
 
     if (!resp.ok) {
-      const errorText = await resp.text();
+      const errorText = await resp?.text();
       // Send error message to Slack and log the error
 
-      sendSlackMessage(`GET request failed with status ${resp.status}: ${errorText}`);
+      // sendSlackMessage(`GET request failed with status ${resp.status}: ${errorText}`);
+      console.log(`GET request failed with status ${resp.status}: ${errorText}`)
 
       return { isError: true, errorMessage: `Status ${resp.status}: ${errorText}` };
     }
@@ -35,8 +36,8 @@ const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
   }
   catch (error) {
   // Send error message to Slack and log the error
-    sendSlackMessage(`Error fetching data from API: ${error.message}`);
-
+    // sendSlackMessage(`Error fetching data from API: ${error.message}`);
+    console.log(`Error fetching data from API: ${error.message}`)
     return { isError: true, errorMessage: error.message };
   }
 },
@@ -55,7 +56,8 @@ const fetchDataFromApi = async (API, ldAccessToken, sendSlackMessage) => {
  * @returns {Promise<Object>} - The JSON data from the API response.
  */
 
-sendDataToApi = async (API, ldAccessToken, patchOperation, sendSlackMessage) => {
+sendDataToApi = async (API, ldAccessToken, patchOperation) => {
+  console.log(patchOperation)
   try {
     let resp = await fetch(API,
       {
@@ -70,7 +72,7 @@ sendDataToApi = async (API, ldAccessToken, patchOperation, sendSlackMessage) => 
     if (!resp.ok) {
       const errorText = await resp.text();
 
-      sendSlackMessage(`PATCH request failed with status ${resp.status}: ${errorText}`);
+      // sendSlackMessage(`PATCH request failed with status ${resp.status}: ${errorText}`);
 
       return { isError: true, errorMessage: `Status ${resp.status}: ${errorText}` };
     }
@@ -79,7 +81,7 @@ sendDataToApi = async (API, ldAccessToken, patchOperation, sendSlackMessage) => 
     return { isError: false, data: resp };
   }
   catch (error) {
-    sendSlackMessage(`Error sending PATCH request: ${error.message}`);
+    // sendSlackMessage(`Error sending PATCH request: ${error.message}`);
 
     return { isError: true, errorMessage: error.message };
   }
