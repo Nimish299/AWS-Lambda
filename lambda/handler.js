@@ -15,7 +15,7 @@ const { processLdRequestWorkflow } = require('./processLdRequest.js'),
       return { statusCode: 200, body: JSON.stringify('Success') };
     }
     catch (error) {
-      await sendSlackMessage(`Status: Failed - 500 Internal Server Error: ${error.message}`);
+      await sendSlackMessage(`<@trial-engineers> Status: Failed - 500 Internal Server Error: ${error.message}`);
 
       return {
         statusCode: 500,

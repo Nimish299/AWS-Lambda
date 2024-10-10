@@ -36,7 +36,7 @@ async function processDailyManifests(day, lastUpdatedDate) {
     year = date?.utc()?.format('YYYY'),
     month = date?.utc()?.format('MM'),
     dateStr = date?.utc()?.format('DD'),
-    folderPath = `pqa_trials/${year}/${month}/${dateStr}/`;
+    folderPath = `trials/pqa_trials/${year}/${month}/${dateStr}/`;
 
   let lastUpdatedTime,
     manifest_url = [];
@@ -69,8 +69,8 @@ async function processDailyManifests(day, lastUpdatedDate) {
     filteredContents = _.filter(response?.data?.Contents, (item) => {
       const parts = item?.Key?.split('/');
       //Extract All the manifest files whos numeric part is greater than lastupdate  time
-      if (parts?.length > 4 && parts[4] && parts[5] === 'manifest') {
-        const numericPart = parts[4];
+      if (parts?.length > 5 && parts[5] && parts[6] === 'manifest') {
+        const numericPart = parts[5];
 
         return numericPart > lastUpdatedTime;
       }
@@ -248,7 +248,7 @@ async function processLdRequestWorkflow() {
     if (lastFilePath) {
       // Take the Time part from URL using lodash _.get for safe array access
       const parts = lastFilePath?.split('/'),
-        numericPart = _.get(parts, '[7]');
+        numericPart = _.get(parts, '[8]');
 
       if (numericPart && numericPart?.length === 10) {
         const dateTimeString = utilsService.formatDateTimeString(parts, numericPart),
@@ -291,8 +291,8 @@ async function processLdRequestWorkflow() {
       // Check if the number of updated email domains exceeds the limit
       if (updatedEmailDomains.length > Limit) {
         // Divide the email domains into chunks of size `Limit`
-        for (let count = 0; count < updatedEmailDomains?.length; count += Limit) {
-          let emailDomainsChunk = updatedEmailDomains?.slice(count, count + Limit);
+        for (let count = 0; count < updatedEmailDomains?.length; count += Number(Limit)) {
+          let emailDomainsChunk = updatedEmailDomains?.slice(count, count + Number(Limit));
 
           // Json to be send on patchOperation
           patchOperation.push({
