@@ -67,11 +67,11 @@ async function processDailyManifests(day, lastUpdatedDate) {
     // The function returns true for objects where the numeric part is greater than `lastUpdatedTime`,
     // indicating they have been updated since the last check.
     filteredContents = _.filter(response?.data?.Contents, (item) => {
-      const parts = item?.Key?.split('/');
-      //Extract All the manifest files whos numeric part is greater than lastupdate  time
-      if (parts?.length > 5 && parts[5] && parts[6] === 'manifest') {
-        const numericPart = parts[5];
-
+      const parts = item?.Key?.split('/'),
+        manifestIndex = parts.findIndex(part => part === 'manifest');
+      // Ensure 'manifest' exists in the path and extract the numeric part just before it
+      if (manifestIndex > 0 && parts[manifestIndex] === 'manifest') {
+        const numericPart = parts[manifestIndex - 1];
         return numericPart > lastUpdatedTime;
       }
 
@@ -247,10 +247,11 @@ async function processLdRequestWorkflow() {
 
     if (lastFilePath) {
       // Take the Time part from URL using lodash _.get for safe array access
-      const parts = lastFilePath?.split('/'),
-        numericPart = _.get(parts, '[8]');
+      let parts = lastFilePath?.split('/');
+      const  numericPart = _.get(parts, '[8]');
 
-      if (numericPart && numericPart?.length === 10) {
+     if (numericPart && numericPart?.length === 10) {
+       parts = parts.slice(5);
         const dateTimeString = utilsService.formatDateTimeString(parts, numericPart),
 
           // Parse and format using Day.js

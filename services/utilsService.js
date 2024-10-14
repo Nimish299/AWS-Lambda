@@ -53,9 +53,9 @@ function formatMessage (status,lastUpdatedDate, numberOfDomains) {
  */
 function formatDateTimeString (parts, numericPart) {
   // Optionally, you can replace lodash's _.get with simple indexing since the indices are known
-  const year = _.get(parts, '[5]'),
-    month = _.get(parts, '[6]'),
-    day = _.get(parts, '[7]'),
+  const year = _.get(parts, '[0]'),
+  month = _.get(parts, '[1]'),
+  day = _.get(parts, '[2]'),
 
     hour = numericPart?.substring(0, 2),
     minute = numericPart?.substring(2, 4),
